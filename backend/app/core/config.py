@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # LLM Settings
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gpt-3.5-turbo"
+    LLM_MODEL: str = "gpt-4o-mini"
     TEMPERATURE: float = 0.7
     MAX_TOKENS: int = 500
     
