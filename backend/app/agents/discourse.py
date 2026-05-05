@@ -32,6 +32,7 @@ from app.agents.plato import Plato, TurnContext
 from app.core import llm
 from app.core.personas import Persona, get as get_persona
 from app.knowledge import news
+from app.knowledge import store as knowledge_store
 
 
 # How many expert turns we want before Plato closes the session. Stored on
@@ -135,7 +136,7 @@ def _next_expert(persona_ids: List[str], history: List[Dict]) -> Persona:
 
 def _generate_expert_turn(persona: Persona, session: Dict) -> str:
     """Build the system prompt + chat history and call the LLM."""
-    quotes = _retrieve_quotes(persona, session["topic"])
+    quotes = _retrieve_quotes(persona, session)
     news_snippets = _get_or_fetch_news(session)
 
     system = _build_system_prompt(persona, session["topic"], quotes, news_snippets)
@@ -234,11 +235,25 @@ def _get_or_fetch_news(session: Dict) -> List[Dict]:
     return snippets
 
 
-def _retrieve_quotes(persona: Persona, topic: str) -> List[str]:
-    """Retrieve persona-relevant quotes for this topic.
+def _retrieve_quotes(persona: Persona, session: Dict) -> List[str]:
+    """Retrieve persona-relevant quotes for the session's topic.
 
-    Placeholder: returns the persona's seed_quotes verbatim. Step 6
-    replaces this with Chroma retrieval (full tier) and in-memory cosine
-    over seed_quotes (curated tier). The signature stays the same.
+    Cached on the session under `quotes_by_persona` so we only hit the
+    embedding API once per (session, persona). The topic does not change
+    mid-debate, so re-querying every turn would just burn tokens.
     """
-    return list(persona.seed_quotes)
+    cache: Dict[str, List[str]] = session.setdefault("quotes_by_persona", {})
+    if persona.id in cache:
+        return cache[persona.id]
+
+    retriever = knowledge_store.get_retriever(persona)
+    chunks = retriever.query(session["topic"], k=4)
+    quotes = [c.text for c in chunks]
+
+    # If retrieval came back empty (e.g. embedding API hiccup or empty
+    # corpus), fall back to seed_quotes so the prompt is never quote-less.
+    if not quotes:
+        quotes = list(persona.seed_quotes)
+
+    cache[persona.id] = quotes
+    return quotes
