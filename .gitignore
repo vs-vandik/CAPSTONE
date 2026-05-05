@@ -30,6 +30,11 @@ dist/
 .coverage
 htmlcov/
 
-# Backend runtime data (scraped corpora and Chroma index live here;
-# commit them deliberately from `backend/scripts/` output, not by accident)
-backend/data/
+# Backend runtime data: ignore most of it, but allow chunks.jsonl through
+# so the demo backend can boot without re-running ingestion. Raw scraped
+# text and Chroma DBs stay out of git — they're either reproducible from
+# chunks.jsonl + ingestion scripts or trivially huge.
+backend/data/**
+!backend/data/
+!backend/data/*/
+!backend/data/*/chunks.jsonl
