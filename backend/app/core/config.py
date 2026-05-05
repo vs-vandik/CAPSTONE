@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "gpt-4o-mini"
     TEMPERATURE: float = 0.7
     MAX_TOKENS: int = 500
+
+    # News grounding (optional). If unset, debates run without current-news context.
+    TAVILY_API_KEY: Optional[str] = None
+    TAVILY_MAX_RESULTS: int = 5
     
     # Knowledge Base
     DATA_DIR: str = "./data"
