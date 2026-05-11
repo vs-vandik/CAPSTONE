@@ -1,0 +1,47 @@
+# Keep the production image small and safe. Anything not needed at
+# runtime should be listed here.
+#
+# In particular:
+# - `.venv/` is the local dev virtualenv; the container builds its own.
+# - `.env` holds local secrets — never bake them into the image. Fly
+#   secrets / env vars supply them at runtime instead.
+# - `scripts/` is for ingestion, run on a developer machine. Embeddings
+#   land in `data/<expert>/embeddings.npy` (gitignored) which IS
+#   shipped in the image when present.
+# - `data/*/raw/` is gitignored intermediate scrape output; the
+#   committed `chunks.jsonl` files are what we actually need.
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache
+.mypy_cache
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Dev tooling
+.git
+.gitignore
+.vscode
+.idea
+*.log
+
+# Ingestion is developer-only
+scripts/
+
+# Gitignored intermediate scrapes (huge, not needed at runtime)
+data/*/raw/
+
+# Docker meta
+Dockerfile
+.dockerignore
+fly.toml
+
+# Editor temp
+*.swp
+.DS_Store

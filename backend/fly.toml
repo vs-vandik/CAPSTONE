@@ -1,0 +1,31 @@
+# fly.toml app configuration file generated for plato-capstone on 2026-05-11T15:28:47+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'plato-capstone'
+primary_region = 'fra'
+
+[build]
+
+[env]
+  CORS_ORIGINS = 'http://localhost:5173,http://localhost:3000'
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = 'requests'
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  cpus = 1
+  memory_mb = 512

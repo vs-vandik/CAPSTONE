@@ -53,16 +53,30 @@ async function submit() {
 
 <template>
   <section class="max-w-page mx-auto px-6 py-16">
-    <div class="max-w-3xl mb-10">
-      <p class="label mb-4">Thesis</p>
-      <h1 class="font-serif text-4xl tracking-tightish text-ink mb-4">
-        State the question.
-      </h1>
-      <p class="text-ink-muted leading-relaxed max-w-prose">
-        Phrase it as a proposition the experts can agree with, contest,
-        or refine — not as an open-ended prompt. The sharper the framing,
-        the sharper the dialogue.
-      </p>
+    <!--
+      Header lockup — the "State the question." heading and the
+      explanatory paragraph below it are shipped as SVGs from design so
+      the type renders pixel-identical to the Figma without depending
+      on web-font loading.
+        - state_the_question.svg  336x38  -> rendered at h-[44px] so the
+          heading carries comparable weight to the rest of the page.
+        - thesis_paragraph.svg    496x71  -> h-auto, capped at the
+          SVG's native width on wider viewports.
+      The small uppercase "Thesis" label is kept as live text since it's
+      a re-usable UI label (also appears elsewhere as `.label`).
+    -->
+    <div class="max-w-3xl mb-12">
+      <p class="label mb-6">Thesis</p>
+      <img
+        src="/state_the_question.svg"
+        alt="State the question."
+        class="h-[44px] w-auto mb-8"
+      />
+      <img
+        src="/thesis_paragraph.svg"
+        alt="Phrase it as a proposition the experts can agree with, contest, or refine — not as an open-ended prompt. The sharper the framing, the sharper the dialogue."
+        class="h-auto w-full max-w-[496px]"
+      />
     </div>
 
     <div class="max-w-3xl">
