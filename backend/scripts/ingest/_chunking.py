@@ -15,7 +15,8 @@ Strategy:
 
 Token counting is approximate: we use len(text) / 4 as a proxy. The actual
 embedding API truncates at its own limit anyway, and ~500 tokens is well
-under text-embedding-3-small's 8192 cap.
+under any current embedding model's input cap (qwen3-embedding-0.6b
+allows 8000, bge-m3 allows 8192).
 """
 
 from typing import Iterable, List

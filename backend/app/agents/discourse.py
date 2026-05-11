@@ -241,12 +241,19 @@ def _retrieve_quotes(persona: Persona, session: Dict) -> List[str]:
     Cached on the session under `quotes_by_persona` so we only hit the
     embedding API once per (session, persona). The topic does not change
     mid-debate, so re-querying every turn would just burn tokens.
+
+    If the session sets `force_seed_quotes=True`, the retriever returns
+    the persona's seed_quotes regardless of whether a built corpus index
+    exists. Used by smoke tests to A/B compare retrieval-on vs -off.
     """
     cache: Dict[str, List[str]] = session.setdefault("quotes_by_persona", {})
     if persona.id in cache:
         return cache[persona.id]
 
-    retriever = knowledge_store.get_retriever(persona)
+    retriever = knowledge_store.get_retriever(
+        persona,
+        force_seed_quotes=session.get("force_seed_quotes", False),
+    )
     chunks = retriever.query(session["topic"], k=4)
     quotes = [c.text for c in chunks]
 

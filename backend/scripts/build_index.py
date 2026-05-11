@@ -5,15 +5,19 @@ Usage (run from `backend/`):
     python -m scripts.build_index buffett
 
 Reads:  data/<expert>/chunks.jsonl
-Writes: data/<expert>/embeddings.npy   (shape: (N, 1536), float32, L2-normalized)
+Writes: data/<expert>/embeddings.npy   (float32, L2-normalized; shape
+        depends on the embedding model in settings)
 
-Embeddings are produced by OpenAI text-embedding-3-small. Cost for the full
-Buffett corpus (2657 chunks ~ 1.2M tokens) is ~$0.024 once.
+Embeddings are produced via the LLM provider configured in `.env`
+(DigitalOcean Inference by default, embedding model
+`qwen3-embedding-0.6b` -> 1024 dim). Both the model and dimension are
+read from settings, so swapping providers means editing .env and
+re-running this script.
 
-We batch in groups of 100 (well under the 2048-input API limit and the
-8192-token-per-input limit). On retry-able errors we let the OpenAI SDK's
-default retry handle it; on hard failures we abort with a useful message
-so partial state never gets persisted.
+We batch in groups of 100 (well under typical input-batch limits). On
+retry-able errors we let the OpenAI SDK's default retry handle it; on
+hard failures we abort with a useful message so partial state never
+gets persisted.
 """
 
 from __future__ import annotations
@@ -48,7 +52,7 @@ def main(expert_id: str) -> int:
 
     print(f"Embedding {len(chunks)} chunks for {expert_id}...")
 
-    # Lazy import: the build step is the only place we hit the OpenAI API
+    # Lazy import: the build step is the only place we hit the LLM API
     # outside the request path, so we keep the import here to fail fast
     # with a clear message if the key is missing.
     from app.core.llm import _get_client

@@ -11,10 +11,17 @@ class Settings(BaseSettings):
     API_TITLE: str = "AI Investment Discourse API"
     API_VERSION: str = "0.1.0"
     
-    # LLM Settings
-    OPENAI_API_KEY: Optional[str] = None
-    ANTHROPIC_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gpt-4o-mini"
+    # LLM Settings — DigitalOcean Serverless Inference
+    # We use DO as the inference provider via its OpenAI-compatible
+    # endpoint. Set MODEL_ACCESS_KEY to a DO model access key from
+    # platform.digitalocean.com. LLM_BASE_URL and EMBEDDING_BASE_URL stay
+    # configurable so we can swap to OpenAI direct (or any other
+    # OpenAI-compatible provider) by changing only .env values.
+    MODEL_ACCESS_KEY: Optional[str] = None
+    LLM_BASE_URL: str = "https://inference.do-ai.run/v1/"
+    LLM_MODEL: str = "anthropic-claude-haiku-4.5"
+    EMBEDDING_MODEL: str = "qwen3-embedding-0.6b"
+    EMBEDDING_DIM: int = 1024  # qwen3-embedding-0.6b native dim
     TEMPERATURE: float = 0.7
     MAX_TOKENS: int = 500
 
@@ -31,6 +38,21 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse CORS_ORIGINS as a comma-separated list of origins.
+
+        We deliberately reject `*` so a development convenience cannot
+        accidentally leak to production. Use explicit origins everywhere.
+        """
+        raw = [o.strip() for o in self.CORS_ORIGINS.split(",")]
+        origins = [o for o in raw if o]
+        if "*" in origins:
+            raise ValueError(
+                "CORS_ORIGINS=* is not supported. List explicit origins."
+            )
+        return origins
     
     # Audio
     ENABLE_TTS: bool = True
@@ -39,6 +61,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # Ignore unknown env vars rather than crashing on them. Useful when
+        # an existing .env still has old keys after a rename (e.g.
+        # OPENAI_API_KEY -> MODEL_ACCESS_KEY).
+        extra = "ignore"
 
 
 # Global settings instance

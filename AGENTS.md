@@ -1,13 +1,15 @@
 # AGENTS.md
 
 Capstone demo: "AI Investment Discourse" — six AI personas (Buffett, Fink,
-Musk, Marx, Caesar, Kardashian) debate finance topics under Plato's
+Musk, Thiel, Marx, Caesar) debate finance topics under Plato's
 moderation, with Aporia critiquing the result. Backend is working
-end-to-end; frontend is still an empty skeleton.
+end-to-end via DigitalOcean Serverless Inference; frontend is still an
+empty skeleton.
 
 ## Layout
 
-- `backend/` — FastAPI + OpenAI, NumPy-based retrieval. Run from this dir.
+- `backend/` — FastAPI + OpenAI SDK pointed at DigitalOcean Inference,
+  NumPy-based retrieval. Run from this dir.
   - `app/main.py` — FastAPI entrypoint, mounts `app/api/routes.py` at `/api/v1`.
   - `app/api/routes.py` — `/personas`, `/personas/{id}`, `/discourse/start`,
     `/discourse/{id}/next`, `/discourse/{id}`, `/discourse/{id}/aporia`.
@@ -15,12 +17,21 @@ end-to-end; frontend is still an empty skeleton.
     `/next` call. Plato opens, experts speak round-robin with Plato
     transitions in between, Plato closes after `max_turns` expert turns.
   - `app/agents/plato.py` — template-based, no LLM. Pre-existing.
-  - `app/agents/aporia.py` — algorithmic critique (regex over history).
+  - `app/agents/aporia.py` — post-debate critique. For each expert,
+    one LLM call recovers the argument's structure (core claim,
+    unstated assumptions, scope limits, named clashes); then one
+    synthesis call identifies real cross-cutting disagreements and
+    open questions. N+1 LLM calls per click. Returns a flat
+    `findings[]` list under Plato's voicing, plus structured
+    `experts[]` / `disagreements[]` / `open_questions[]` for richer
+    rendering. Degrades to a content-only message (never 500s) if
+    the LLM is unavailable or returns unparseable JSON.
   - `app/agents/experts/scraper.py` — old placeholder, **not used at
     runtime**. Real ingestion lives in `scripts/ingest/`.
   - `app/core/personas.py` — six persona definitions (id, voice, refusals,
     seed_quotes, `rag_tier ∈ {full, curated}`).
-  - `app/core/llm.py` — single `generate(system, messages)` around OpenAI.
+  - `app/core/llm.py` — single `generate(system, messages)` around the
+    OpenAI SDK pointed at `LLM_BASE_URL` (DO Inference by default).
   - `app/knowledge/news.py` — Tavily search, optional, fails open.
   - `app/knowledge/store.py` — `get_retriever(persona)` returning either a
     `FullCorpusRetriever` (NumPy cosine over a saved `embeddings.npy`) or
@@ -28,8 +39,62 @@ end-to-end; frontend is still an empty skeleton.
 - `backend/scripts/` — out-of-band one-shots, run manually:
   - `ingest/buffett.py` — scrapes Berkshire shareholder letters
     (1977–2001) into `data/buffett/chunks.jsonl`.
+  - `ingest/fink.py` — scrapes BlackRock CEO letters (2012, 2014–2022),
+    Annual Chairman's Letters (2023+), and the Wikipedia biography into
+    `data/fink/chunks.jsonl`. Each source is independent; partial
+    failures don't abort the run. Uses cross-source dedupe to drop the
+    recurring "Mega forces" sidebar.
+  - `ingest/musk.py` — assembles a Musk corpus from the Kaggle dataset
+    "Elon Musk Tweets 2010 to 2025 (March)" by dadalyndell (CSV must
+    be downloaded manually to `backend/data/musk/raw/` since Kaggle
+    requires login), Wikiquote (~280 sourced quotes 2005–present),
+    the Lex Fridman podcast transcripts (#400 + Neuralink team), the
+    Joe Rogan Experience #1470 transcript via singjupost.com, the
+    Wikipedia biography, and the "Views of Elon Musk" page. Per-source
+    speaker filtering keeps only Musk's lines from podcast transcripts;
+    the Kaggle CSV ingestion drops retweets, replies-to-others, and
+    sub-40-char tweets, then year-buckets the survivors. The Kaggle
+    source is optional — if the CSV is missing the script logs and
+    skips, falling back to the other sources.
+  - `ingest/marx.py` — scrapes Marx's economic and political core from
+    marxists.org: Communist Manifesto, Capital Vol. I (33 chapters +
+    appendix), Wage Labour and Capital, Value Price and Profit,
+    Critique of the Gotha Programme, Theses on Feuerbach, Economic and
+    Philosophic Manuscripts of 1844, plus the Wikipedia biography.
+    ~1850 chunks. Per-source independent like fink.py; cross-source
+    dedupe drops repeated prefatory matter.
+  - `ingest/thiel.py` — assembles Thiel's corpus from Wikiquote, the
+    Cato Unbound essay "The Education of a Libertarian" (which the
+    site renders inline with his reply post in the same exchange),
+    First Things' "Against Edenism," the Founders Fund "Hereticon /
+    The Future" manifesto, six Singjupost-hosted speaker-attributed
+    transcripts (Antichrist talk, Jordan Peterson podcast, AI/Mars/
+    Immortality, Apocalypse Now I & II, Trump-administration talk),
+    the 2016 Hamilton commencement monologue, and the Wikipedia
+    biography. ~200 chunks. Per-source independent; cross-post
+    duplicates between Singjupost URLs are silently dropped by the
+    paragraph-level dedupe rather than failing the run.
+  - `ingest/caesar.py` — fetches Project Gutenberg ebook #10657
+    (McDevitte's English translation containing both De Bello Gallico
+    Books I-VIII and De Bello Civili Books I-III), splits the
+    concatenated plain text at the "THE CIVIL WAR" marker, then chunks
+    by chapter (`I.--`, `II.--`, ...) within each book. Adds the
+    Wikiquote and Wikipedia pages on top. ~670 chunks. The De Quincey
+    introduction at the front of the file is dropped because it is not
+    Caesar's voice.
   - `ingest/_chunking.py` — paragraph-aware chunker, reusable.
   - `build_index.py` — embeds a chunks.jsonl into `embeddings.npy`.
+  - `smoke_fink.py` — drives a short Buffett↔Fink discourse end-to-end
+    and prints the retrieved quotes per persona. Useful as a regression
+    test after touching the discourse loop or knowledge store.
+  - `smoke_musk.py` — same idea for a Fink↔Musk debate on AI and the
+    labor market.
+  - `smoke_marx.py` — same idea for a Buffett↔Marx debate on whether
+    capital accumulation benefits workers.
+  - `smoke_thiel.py` — same idea for a Fink↔Thiel debate on
+    technological stagnation.
+  - `smoke_caesar.py` — same idea for a Fink↔Caesar debate on
+    committing decisively to expensive long-term projects.
 - `backend/data/<expert>/` — `chunks.jsonl` (committed) + `raw/` and
   `embeddings.npy` (gitignored).
 - `frontend/` — still just empty `src/{components,services,stores,views}`.
@@ -43,9 +108,9 @@ No tests, no lint/format/typecheck, no CI, no lockfiles.
 # from backend/
 python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-Copy-Item .env.example .env       # add your OPENAI_API_KEY
+Copy-Item .env.example .env       # add your MODEL_ACCESS_KEY (DO key)
 python -m scripts.ingest.buffett  # ~1 minute, hits berkshirehathaway.com
-python -m scripts.build_index buffett   # ~$0.024 in OpenAI embeddings
+python -m scripts.build_index buffett   # tiny embedding cost on DO
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -82,8 +147,6 @@ back to seed_quotes and the demo still runs. The fallback is logged.
   `turn_number` and dies once `turn_number > len(speakers)`. The
   discourse loop avoids it by building `TurnContext` directly. If you
   use `create_context` for a new caller, fix it first.
-- **Kardashian seed_quotes are paraphrases, not verbatim**, flagged with
-  a comment in `personas.py`. Replace before any non-demo use.
 - **`AGENT_CONFIG` in `core/config.py`** is a separate constant from
   `settings`; the `Settings` instance does not feed it.
 - **Old `app/agents/experts/scraper.py`** is the original placeholder

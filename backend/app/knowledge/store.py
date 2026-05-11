@@ -3,7 +3,8 @@
 Two strategies behind one interface (`get_retriever(persona) -> Retriever`):
 
 - `FullCorpusRetriever`: reads `data/<expert>/embeddings.npy` and
-  `data/<expert>/chunks.jsonl` from disk, embeds the query via OpenAI,
+  `data/<expert>/chunks.jsonl` from disk, embeds the query via the
+  configured embedding provider (DigitalOcean Inference by default),
   returns top-k chunks by cosine similarity. Used for personas with the
   `full` RAG tier (Buffett, Fink, Musk).
 
@@ -35,8 +36,12 @@ from app.core.config import settings
 from app.core.personas import Persona
 
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIM = 1536  # text-embedding-3-small native dim
+# Embedding config is read from settings rather than hardcoded so the
+# whole stack can be repointed at OpenAI / a different DO model / a local
+# provider by editing .env. The exported constants stay for callers that
+# imported them by name (build_index.py).
+EMBEDDING_MODEL = settings.EMBEDDING_MODEL
+EMBEDDING_DIM = settings.EMBEDDING_DIM
 
 
 # Resolve the data root from the cwd at import time. Backend is always
@@ -50,7 +55,7 @@ DATA_ROOT = Path(settings.DATA_DIR).resolve()
 
 
 def embed(texts: Sequence[str]) -> np.ndarray:
-    """Embed a batch of texts with text-embedding-3-small.
+    """Embed a batch of texts with the configured embedding model.
 
     Returns:
         ndarray of shape (len(texts), EMBEDDING_DIM), L2-normalized so
@@ -59,8 +64,8 @@ def embed(texts: Sequence[str]) -> np.ndarray:
     if not texts:
         return np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
 
-    # Lazy import so this module doesn't require openai unless retrieval
-    # is actually used.
+    # Lazy import so this module doesn't require the LLM client unless
+    # retrieval is actually used.
     from app.core.llm import _get_client  # noqa: WPS437 (private intentionally)
 
     client = _get_client()
@@ -167,8 +172,19 @@ _retriever_cache: Dict[str, Retriever] = {}
 _cache_lock = threading.Lock()
 
 
-def get_retriever(persona: Persona) -> Retriever:
-    """Return the right retriever for a persona, cached per process."""
+def get_retriever(persona: Persona, *, force_seed_quotes: bool = False) -> Retriever:
+    """Return the right retriever for a persona, cached per process.
+
+    Args:
+        persona: persona to retrieve for.
+        force_seed_quotes: if True, return a `SeedQuoteRetriever` even
+            for `full`-tier personas that have a built index. Useful for
+            A/B comparison in smoke tests. Bypasses the cache because
+            forced and unforced retrievers should not share an entry.
+    """
+    if force_seed_quotes:
+        return SeedQuoteRetriever(persona)
+
     if persona.id in _retriever_cache:
         return _retriever_cache[persona.id]
 
@@ -207,6 +223,15 @@ def _try_load_full_index(expert_id: str) -> Optional[FullCorpusRetriever]:
             f"Index mismatch for {expert_id}: "
             f"{embeddings.shape[0]} embeddings vs {len(metadata)} chunks. "
             f"Rebuild with `python -m scripts.build_index {expert_id}`."
+        )
+    if embeddings.shape[1] != EMBEDDING_DIM:
+        raise RuntimeError(
+            f"Embedding-dim mismatch for {expert_id}: index is "
+            f"{embeddings.shape[1]} dim but the configured model "
+            f"{EMBEDDING_MODEL!r} produces {EMBEDDING_DIM} dim. "
+            f"Either change EMBEDDING_MODEL/EMBEDDING_DIM in .env back to "
+            f"the model that built this index, or rebuild with "
+            f"`python -m scripts.build_index {expert_id}`."
         )
     # Defensive: ensure normalized so query() can use plain dot product.
     embeddings = _l2_normalize(embeddings.astype(np.float32))

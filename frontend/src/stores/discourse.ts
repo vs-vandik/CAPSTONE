@@ -1,0 +1,215 @@
+import { defineStore } from 'pinia'
+import { api } from '@/services/api'
+import type {
+  AporiaResult,
+  DiscourseStatus,
+  Persona,
+  Turn,
+} from '@/types'
+
+interface State {
+  // Catalog
+  personas: Persona[]
+  personasLoaded: boolean
+  personasLoading: boolean
+
+  // Setup flow (persists across the Personas -> Topic -> Discourse pages)
+  selectedPersonaIds: string[]
+  topic: string
+
+  // Active session
+  sessionId: string | null
+  turns: Turn[]
+  status: DiscourseStatus
+  error: string | null
+  aporia: AporiaResult | null
+}
+
+// In-flight persona fetch promise, shared across concurrent callers so
+// e.g. PersonasView + DiscourseView mounting in quick succession don't
+// each fire their own request.
+let personasInflight: Promise<void> | null = null
+
+export const useDiscourseStore = defineStore('discourse', {
+  state: (): State => ({
+    personas: [],
+    personasLoaded: false,
+    personasLoading: false,
+    selectedPersonaIds: [],
+    topic: '',
+    sessionId: null,
+    turns: [],
+    status: 'idle',
+    error: null,
+    aporia: null,
+  }),
+
+  getters: {
+    selectedPersonas(state): Persona[] {
+      const map = new Map(state.personas.map((p) => [p.id, p]))
+      return state.selectedPersonaIds
+        .map((id) => map.get(id))
+        .filter((p): p is Persona => Boolean(p))
+    },
+    isReadyForTopic(state): boolean {
+      return state.selectedPersonaIds.length === 2
+    },
+    isReadyToStart(state): boolean {
+      return (
+        state.selectedPersonaIds.length === 2 && state.topic.trim().length > 0
+      )
+    },
+    canAdvance(state): boolean {
+      return (
+        state.status === 'active' || state.status === 'idle'
+      )
+    },
+  },
+
+  actions: {
+    async loadPersonas(opts: { force?: boolean } = {}) {
+      // Already have a usable catalog -> done.
+      if (this.personasLoaded && this.personas.length > 0 && !opts.force) {
+        return
+      }
+      // Coalesce concurrent callers onto the same in-flight request, so
+      // we don't fire two /personas requests when PersonasView mounts
+      // right after a route guard has already kicked one off.
+      if (personasInflight) {
+        return personasInflight
+      }
+
+      this.personasLoading = true
+      this.error = null
+
+      // Retry with a short backoff: the most common reason the very
+      // first load fails is the dev backend cold-starting (numpy
+      // import + embeddings load can stretch past a fetch timeout, and
+      // the Vite proxy occasionally returns ECONNREFUSED for ~100ms
+      // while uvicorn binds the port). Three attempts is more than
+      // enough to bridge that without making real failures feel slow.
+      const attempt = async (): Promise<void> => {
+        const delays = [0, 600, 1500]
+        let lastErr: unknown = null
+        for (let i = 0; i < delays.length; i++) {
+          if (delays[i] > 0) {
+            await new Promise((r) => setTimeout(r, delays[i]))
+          }
+          try {
+            const { personas } = await api.listPersonas()
+            // Defensive: treat an empty list as a failure too, so the
+            // user never sees a silent "no cards" screen. The backend
+            // ships six personas; zero means the response was malformed
+            // or the route is misbehind a proxy.
+            if (!Array.isArray(personas) || personas.length === 0) {
+              throw new Error('Empty personas response')
+            }
+            this.personas = personas
+            this.personasLoaded = true
+            this.error = null
+            return
+          } catch (e) {
+            lastErr = e
+            // keep looping
+          }
+        }
+        // Out of retries: surface the last error.
+        this.error = (lastErr as Error)?.message ?? 'Failed to load personas'
+      }
+
+      personasInflight = attempt().finally(() => {
+        this.personasLoading = false
+        personasInflight = null
+      })
+      return personasInflight
+    },
+
+    togglePersona(id: string) {
+      const i = this.selectedPersonaIds.indexOf(id)
+      if (i >= 0) {
+        this.selectedPersonaIds.splice(i, 1)
+        return
+      }
+      // Cap at 2: if already 2 selected, replace the older one.
+      if (this.selectedPersonaIds.length >= 2) {
+        this.selectedPersonaIds.shift()
+      }
+      this.selectedPersonaIds.push(id)
+    },
+
+    setTopic(topic: string) {
+      this.topic = topic
+    },
+
+    async start(): Promise<string | null> {
+      if (!this.isReadyToStart) return null
+      this.status = 'loading'
+      this.error = null
+      this.turns = []
+      this.aporia = null
+      try {
+        const res = await api.startDiscourse({
+          topic: this.topic.trim(),
+          persona_ids: [...this.selectedPersonaIds],
+        })
+        this.sessionId = res.session_id
+        this.status = 'idle'
+        return res.session_id
+      } catch (e) {
+        this.error = (e as Error).message
+        this.status = 'error'
+        return null
+      }
+    },
+
+    async nextTurn() {
+      if (!this.sessionId) return
+      if (this.status === 'done' || this.status === 'loading') return
+      this.status = 'loading'
+      this.error = null
+      try {
+        const turn = await api.nextTurn(this.sessionId)
+        this.turns.push(turn)
+        this.status = turn.done ? 'done' : 'active'
+      } catch (e) {
+        this.error = (e as Error).message
+        this.status = 'error'
+      }
+    },
+
+    async runAporia() {
+      if (!this.sessionId) return
+      this.error = null
+      try {
+        this.aporia = await api.runAporia(this.sessionId)
+      } catch (e) {
+        this.error = (e as Error).message
+      }
+    },
+
+    closeAporia() {
+      this.aporia = null
+    },
+
+    async end() {
+      if (this.sessionId) {
+        try {
+          await api.endDiscourse(this.sessionId)
+        } catch {
+          // ignore — session may already be gone server-side
+        }
+      }
+      this.sessionId = null
+      this.turns = []
+      this.status = 'idle'
+      this.error = null
+      this.aporia = null
+    },
+
+    resetAll() {
+      this.selectedPersonaIds = []
+      this.topic = ''
+      this.end()
+    },
+  },
+})

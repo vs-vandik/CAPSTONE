@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import routes
+from app.core.config import settings
 
 # Create FastAPI app
 app = FastAPI(
@@ -11,10 +12,11 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Configure CORS for Vue.js frontend
+# Configure CORS. Origins come from settings.CORS_ORIGINS (comma-separated
+# in .env), so deploys can change allowed origins without a code change.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -50,7 +50,7 @@ class Plato:
         return {
             "role": "plato",
             "type": "opening",
-            "content": f"""📜 *The Academy gathers...*
+            "content": f""" *The Academy gathers...*
 
 The question before us is: **{topic}**
 
@@ -90,13 +90,13 @@ Each of you, speak your truth. And let us test these truths through questioning.
 What assumptions lie beneath their argument? 
 Are these assumptions justified, or do they contain hidden flaws?""",
             
-            f"""🜵 *Plato probes further:*
+            f"""*Plato probes further:*
 
 {prev} makes a compelling point. Yet consider:
 What if their reasoning rests on a foundation that does not hold?
 {curr}, you are known for your critical mind — where are the cracks in this argument?""",
             
-            f"""🜵 *Plato challenges {curr}:*
+            f""" *Plato challenges {curr}:*
 
 {prev} claims much, but Socrates taught us to examine every claim.
 {curr}, you have heard their argument. Now test it:
@@ -147,7 +147,7 @@ What have they overlooked?""",
             }
         
         # Build summary
-        summary_text = "📊 *Plato takes stock:*\n\n"
+        summary_text = " *Plato takes stock:*\n\n"
         summary_text += "We have heard competing views:\n\n"
         
         for pos in positions[-4:]:  # Last 4 positions
@@ -183,7 +183,7 @@ do we find wisdom."""
         return {
             "role": "plato",
             "type": "invite_user",
-            "content": """🎭 *Plato turns to you:*
+            "content": """ *Plato turns to you:*
 
 You have listened with patience. Now speak.
 
@@ -219,7 +219,7 @@ Your thinking is as valuable as any expert's.
         return {
             "role": "plato",
             "type": "closing",
-            "content": f"""📜 *The Academy disperses...*
+            "content": f""" *The Academy disperses...*
 
 We have examined **{topic}** from many angles.
 
@@ -257,7 +257,7 @@ The dialogue ends, but your thinking should continue.""",
         return {
             "role": "plato",
             "type": "redirect",
-            "content": f"""🜵 *Plato intervenes:*
+            "content": f""" *Plato intervenes:*
 
 We have strayed from our question: **{topic}**
 
