@@ -1,4 +1,35 @@
-"""API routes for discourse endpoints."""
+"""API routes for discourse endpoints.
+
+Async-vs-sync routing convention (READ BEFORE EDITING):
+
+`llm.generate` calls the *synchronous* `openai.OpenAI` client. A
+synchronous SDK call inside an `async def` route blocks the asyncio
+event loop for the entire LLM round-trip (5-15 seconds), which means
+*every* other request to this worker — even a static GET /personas —
+queues behind it. On a single-worker uvicorn deployment (see
+fly.toml + Dockerfile, both deliberately single-worker because
+sessions live in process memory), this manifests as "two devices
+can't use the app at once": device B can't load any page while
+device A is mid-turn.
+
+FastAPI runs `def` (sync) route handlers in a starlette threadpool
+(default 40 threads) *off* the event loop. That means the blocking
+LLM call no longer monopolises the worker; other requests keep
+flowing while the LLM is thinking. With the default threadpool size,
+~40 concurrent LLM calls can be in flight before further requests
+queue — well above any demo-scale audience.
+
+The rule:
+- Routes that call `llm.generate` (directly or transitively via
+  `discourse.next_turn` / `aporia.Aporia.analyze`) are `def`, not
+  `async def`.
+- Trivial routes that just dict-lookup or return static data stay
+  `async def`. They're cheap and either path is fine.
+
+Do NOT "fix" these to `async def` without first converting
+`llm.generate` to use `openai.AsyncOpenAI` and awaiting it. If you
+do, the event-loop-blocking bug returns silently.
+"""
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -9,7 +40,13 @@ from app.core.personas import PERSONAS, all_personas
 
 router = APIRouter()
 
-# In-memory storage for discourse sessions
+# In-memory storage for discourse sessions. Lives for the lifetime of
+# this worker process; wiped on every restart/deploy (accepted trade-off
+# for the capstone demo, see fly.toml comments). Plain dict is safe
+# enough for concurrent access because sessions are keyed by UUID so
+# different requests touch different keys; within a single session,
+# the frontend's "thinking…" state prevents the user from double-tapping
+# Continue, so we don't bother locking the per-session history.
 discourse_sessions: Dict[str, dict] = {}
 
 
@@ -115,8 +152,13 @@ async def start_discourse(request: StartDiscourseRequest):
 
 
 @router.post("/discourse/{session_id}/next")
-async def next_turn(session_id: str):
+def next_turn(session_id: str):
     """Advance the discourse by one turn (Plato or expert).
+
+    Sync handler on purpose — see the async-vs-sync note at the top of
+    this file. FastAPI runs this in starlette's threadpool, so the
+    blocking `llm.generate` call inside `discourse.next_turn` no longer
+    holds the event loop hostage.
 
     Idempotent only in the sense that calling /next on a `done` session
     returns the existing closing turn rather than generating a new one.
@@ -162,10 +204,15 @@ async def end_discourse(session_id: str):
 
 
 @router.post("/discourse/{session_id}/aporia")
-async def trigger_aporia(session_id: str):
+def trigger_aporia(session_id: str):
     """
     Trigger Aporia analysis on the discourse.
-    
+
+    Sync handler on purpose — see the async-vs-sync note at the top of
+    this file. Aporia makes N+1 blocking LLM calls per click (one per
+    expert plus a synthesis pass), and any one of them would block the
+    event loop if this were `async def`.
+
     When user clicks the Aporia button, this analyzes the debate
     to expose assumptions, contradictions, and blind spots.
     """

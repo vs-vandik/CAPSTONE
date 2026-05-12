@@ -6,7 +6,14 @@ const route = useRoute()
 </script>
 
 <template>
-  <div class="min-h-screen flex flex-col bg-bg">
+  <!--
+    100dvh, not 100vh: on iOS Safari the browser's address bar shrinks
+    on scroll, and the static `vh` unit doesn't account for that, so
+    100vh ends up 60-80px taller than the actually-visible viewport and
+    sticky bars get pushed below the fold. Dynamic viewport units fix
+    this; supported since iOS 15.4 / Chrome 108.
+  -->
+  <div class="min-h-[100dvh] flex flex-col bg-bg">
     <TopBar />
     <main class="flex-1 w-full flex flex-col">
       <!--

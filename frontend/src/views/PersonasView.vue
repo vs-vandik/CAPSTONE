@@ -69,7 +69,7 @@ function retry() {
       <img
         src="/select_two_experts.svg"
         alt="Select two experts"
-        class="h-[52px] w-auto mb-12"
+        class="h-auto max-w-full w-auto sm:h-[52px] mb-12"
       />
       <img
         src="/experts_intro.svg"
@@ -142,6 +142,7 @@ function retry() {
     <div
       v-if="hasPersonas"
       class="mt-12 flex items-center justify-between gap-4 sticky bottom-0 bg-bg/90 backdrop-blur py-4 border-t border-border"
+      style="padding-bottom: max(1rem, env(safe-area-inset-bottom));"
     >
       <p class="text-sm text-ink-muted">
         <span class="text-ink font-medium">{{ selectedCount }}</span>
@@ -162,8 +163,12 @@ function retry() {
     landing page: mt-auto pins it to the bottom of <main> on tall
     screens, pt-32 keeps a comfortable gap above the heads on shorter
     content. The site-wide App.vue footer is suppressed on this route.
+
+    Hidden below `sm` (same reason as on the landing): at phone widths
+    the silhouettes squish into an unreadable grey blur. Restored at
+    tablet+ where there's room for the band to breathe.
   -->
-  <section class="mt-auto pt-32">
+  <section class="hidden sm:block mt-auto pt-32">
     <img
       src="/footer_landing.svg"
       alt=""

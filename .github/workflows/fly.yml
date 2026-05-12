@@ -1,0 +1,52 @@
+# Auto-deploy the backend to Fly.io on every push to main.
+#
+# Trigger: only when files under `backend/` (or this workflow file
+# itself) change, so frontend-only commits don't redeploy the backend
+# unnecessarily. Vercel handles the frontend on its own webhook from
+# the same push.
+#
+# Prerequisites (one-time setup):
+#   1. flyctl auth token       # generate a Fly API token locally
+#   2. In GitHub: repo Settings -> Secrets and variables -> Actions ->
+#      New repository secret, name = FLY_API_TOKEN, value = the token.
+#
+# After that, `git push origin main` is the entire deploy command.
+#
+# Manual override: trigger the workflow from the GitHub Actions tab
+# via `workflow_dispatch` (the "Run workflow" button).
+
+name: Deploy backend to Fly
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/fly.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    # Don't run more than one deploy at a time; if a second push lands
+    # mid-deploy, queue it and run after the first finishes. Prevents
+    # racing image pushes against the registry.
+    concurrency:
+      group: fly-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # `--remote-only` tells flyctl to build the Docker image on Fly's
+      # remote builder instead of locally. This keeps the GitHub runner
+      # light and avoids having to set up Docker buildx here. The build
+      # uses `backend/Dockerfile` because `--config backend/fly.toml`
+      # sets the working context.
+      - name: Deploy
+        run: flyctl deploy --remote-only --config backend/fly.toml --dockerfile backend/Dockerfile backend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -138,10 +138,23 @@ back to seed_quotes and the demo still runs. The fallback is logged.
 - **Brotli is mandatory for ingestion**: `berkshirehathaway.com` is
   fronted by Sucuri and serves Brotli regardless of `Accept-Encoding`.
   `requirements.txt` includes `brotli==1.1.0` for that reason.
-- **In-memory sessions**: `routes.py:11` `discourse_sessions: Dict`.
-  Restarts wipe everything. Cached on the session: `news` (Tavily
+- **In-memory sessions**: `routes.py` `discourse_sessions: Dict`.
+  Restarts wipe everything (accepted trade-off for the demo; deploy
+  off-hours or warn users). Cached on the session: `news` (Tavily
   results) and `quotes_by_persona` (top-k retrieval per persona) — both
   populated lazily.
+- **Sync routes, on purpose**: `next_turn` and `trigger_aporia` are
+  `def`, not `async def`. The OpenAI SDK call inside `llm.generate` is
+  synchronous and would block the event loop for the entire 5-15 second
+  LLM round-trip if these routes were async. With sync routes, FastAPI
+  runs them in starlette's threadpool, so concurrent users don't block
+  each other. Do NOT convert to `async def` without first switching
+  `llm.generate` to `openai.AsyncOpenAI` and awaiting it — see the
+  header comment in `app/api/routes.py`.
+- **Fly deployment is single-machine, always-on**: `fly.toml` sets
+  `auto_stop_machines = false` because in-memory sessions can't survive
+  a stop. Do not enable auto-stop until session storage moves out of
+  process memory.
 - **Plato has no LLM**: pure templates. Don't assume model calls.
 - **Plato's `create_context` has a bug**: it indexes `speakers` by
   `turn_number` and dies once `turn_number > len(speakers)`. The

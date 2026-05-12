@@ -18,7 +18,7 @@ primary_region = "fra"
 [http_service]
   internal_port = 8000
   force_https = true
-  # Sessions live in process memory (see app/api/routes.py:13). Two
+  # Sessions live in process memory (see app/api/routes.py). Two
   # consequences for Fly's autoscaler:
   #
   # 1. We must run exactly ONE machine. With two, requests from the
@@ -28,12 +28,23 @@ primary_region = "fra"
   #    via `flyctl scale count 1`; do NOT recreate a second machine
   #    via `flyctl machine clone`.
   #
-  # 2. We can't let the machine auto-stop while a discourse is in
-  #    flight, because restart wipes every active session. With
-  #    `min_machines_running = 1` the machine stays warm and sessions
-  #    persist until you redeploy or restart it. The downside is a
-  #    few cents per day of running cost on shared-cpu-1x/512MB.
-  auto_stop_machines = "stop"
+  # 2. We cannot let the machine auto-stop on idle, because restart
+  #    wipes every active session. `auto_stop_machines = false` keeps
+  #    the machine warm 24/7. `min_machines_running = 1` alone does
+  #    not prevent auto-stop on Fly's machines platform — they're
+  #    independent settings, and previously setting only the latter
+  #    silently let sessions evaporate when traffic went idle.
+  #
+  # Cost: a few cents per day of running cost on shared-cpu-1x/512MB.
+  # Accepted trade-off for the capstone demo. Sessions still die on
+  # every deploy / OOM kill — also accepted. Real persistence (Redis
+  # etc.) is deliberately out of scope.
+  #
+  # Concurrent users on one machine: each blocking LLM call now runs
+  # in starlette's threadpool (default 40 threads) rather than on the
+  # event loop, so 40 concurrent in-flight LLM calls is the ceiling.
+  # See the async-vs-sync note in app/api/routes.py.
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]

@@ -95,8 +95,12 @@
     Fixed top margin keeps the page from stretching to fill the
     viewport: heads sit just below the feature grid with controlled
     breathing room, not pinned to the bottom of tall screens.
+
+    Hidden below `sm` because at phone widths the silhouettes squish
+    down to a ~60px-tall band of grey blur that reads as visual noise.
+    Restored on tablets/desktops where the SVG has room to breathe.
   -->
-  <section class="mt-10">
+  <section class="hidden sm:block mt-10">
     <img
       src="/footer_landing.svg"
       alt=""

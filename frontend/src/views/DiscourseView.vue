@@ -156,10 +156,13 @@ async function endSession() {
       </div>
 
       <!-- Per-turn nudge: tell the user how to advance, sitting just
-           under the most recent turn so the affordance is unmissable. -->
+           under the most recent turn so the affordance is unmissable.
+           Hidden below `sm` because the on-screen button is the only
+           affordance on touch devices; the keyboard hint is desktop-only
+           and confuses phone users. -->
       <p
         v-if="canContinue"
-        class="mt-2 mb-10 text-center text-xs text-ink-faint"
+        class="hidden sm:block mt-2 mb-10 text-center text-xs text-ink-faint"
       >
         Press
         <kbd
@@ -172,12 +175,50 @@ async function endSession() {
       <div ref="transcriptEnd" />
     </div>
 
-    <!-- Sticky controls -->
+    <!--
+      Sticky controls.
+
+      Desktop (sm+): single row with End/Aporia on the left and a large
+      Continue on the right. This is the original layout, untouched.
+
+      Mobile (< sm): stacked. Continue gets its own full-width row at
+      the top (the primary affordance, easy thumb-target), then a thin
+      row underneath holds End discourse + Aporia. `env(safe-area-inset-bottom)`
+      adds padding below the bar so the iPhone home indicator doesn't
+      sit on top of the controls. The spacer below the transcript is
+      bumped from h-24 (96px, the old desktop value) to h-44 sm:h-24
+      (~176px) because the stacked mobile bar is taller than the desktop
+      row and would otherwise cover the final turn.
+    -->
     <div
       class="fixed bottom-0 left-0 right-0 border-t border-border bg-bg/95 backdrop-blur z-20"
+      style="padding-bottom: env(safe-area-inset-bottom);"
     >
+      <!-- Mobile: stacked layout -->
+      <div class="sm:hidden max-w-page mx-auto px-4 py-3 flex flex-col gap-2">
+        <button
+          class="btn-primary btn-continue w-full"
+          :class="{ 'btn-continue--ready': canContinue }"
+          :disabled="isLoading || isDone || isEmpty"
+          @click="advance"
+        >
+          {{ advanceLabel }}
+        </button>
+        <div class="flex items-center justify-between gap-2">
+          <button class="btn-ghost" @click="endSession">End discourse</button>
+          <button
+            class="btn-secondary"
+            :disabled="isEmpty || aporiaLoading"
+            @click="aporia"
+          >
+            {{ aporiaLoading ? 'Examining…' : 'Aporia' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Desktop: original single-row layout -->
       <div
-        class="max-w-page mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-3"
+        class="hidden sm:flex max-w-page mx-auto px-6 py-4 flex-wrap items-center justify-between gap-3"
       >
         <div class="flex items-center gap-2">
           <button class="btn-ghost" @click="endSession">End discourse</button>
@@ -200,8 +241,9 @@ async function endSession() {
       </div>
     </div>
 
-    <!-- Bottom spacer so content isn't hidden by the sticky bar -->
-    <div class="h-24" />
+    <!-- Bottom spacer so content isn't hidden by the sticky bar.
+         Mobile stacked bar is ~140px tall; desktop is ~76px. -->
+    <div class="h-44 sm:h-24" />
 
     <AporiaPanel
       :open="!!store.aporia || aporiaLoading"

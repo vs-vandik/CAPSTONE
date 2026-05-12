@@ -70,7 +70,7 @@ async function submit() {
       <img
         src="/state_the_question.svg"
         alt="State the question."
-        class="h-[44px] w-auto mb-8"
+        class="h-auto max-w-full w-auto sm:h-[44px] mb-8"
       />
       <img
         src="/thesis_paragraph.svg"

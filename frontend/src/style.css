@@ -24,6 +24,17 @@
 }
 
 @layer components {
+  /*
+    Buttons:
+    - `.btn` is the base shape (padding, border, transition).
+    - `.btn-primary` / `.btn-secondary` are the load-bearing CTAs and
+      get a 44px min-height (iOS HIG touch-target minimum). Achieved
+      via `min-h-[44px]`, since increasing padding alone would shift
+      vertical rhythm on desktop.
+    - `.btn-ghost` is for secondary affordances (End discourse, Back,
+      panel-close); it stays smaller because it sits next to a primary
+      action that gives the column its own 44px floor.
+  */
   .btn {
     @apply inline-flex items-center justify-center
       px-5 py-2.5 text-sm font-medium
@@ -32,10 +43,10 @@
       disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-primary {
-    @apply btn bg-accent text-white hover:bg-accent-hover;
+    @apply btn bg-accent text-white hover:bg-accent-hover min-h-[44px];
   }
   .btn-secondary {
-    @apply btn bg-surface text-ink border-border hover:border-border-strong;
+    @apply btn bg-surface text-ink border-border hover:border-border-strong min-h-[44px];
   }
   .btn-ghost {
     @apply btn bg-transparent text-ink-muted hover:text-ink;
