@@ -37,7 +37,14 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     
     # CORS
+    # CORS_ORIGINS is a comma-separated list of exact origin matches,
+    # used for stable URLs like localhost and the production Vercel
+    # domain. CORS_ORIGIN_REGEX is a single regex used to match
+    # ephemeral preview deployment URLs (Vercel mints a new one for
+    # every push, like https://capstone-abc123-capstone26.vercel.app),
+    # so we don't have to rotate a Fly secret on every deploy.
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGIN_REGEX: Optional[str] = None
 
     @property
     def cors_origins_list(self) -> list[str]:

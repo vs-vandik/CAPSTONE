@@ -12,11 +12,15 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Configure CORS. Origins come from settings.CORS_ORIGINS (comma-separated
-# in .env), so deploys can change allowed origins without a code change.
+# Configure CORS. Stable origins (localhost, production Vercel domain)
+# come from settings.CORS_ORIGINS as a comma-separated list. Ephemeral
+# Vercel preview deployment URLs (one new origin per push) are matched
+# by settings.CORS_ORIGIN_REGEX so we don't rotate the Fly secret on
+# every deploy. Both can be set independently; either alone is fine.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
