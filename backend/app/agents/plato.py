@@ -257,7 +257,7 @@ The dialogue ends, but your thinking should continue.""",
         return {
             "role": "plato",
             "type": "redirect",
-            "content": f""" *Plato intervenes:*
+            "content": f"""*Plato intervenes:*
 
 We have strayed from our question: **{topic}**
 

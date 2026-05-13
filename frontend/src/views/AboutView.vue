@@ -2,72 +2,102 @@
 </script>
 
 <template>
-  <section class="max-w-page mx-auto px-6 py-20">
-    <div class="max-w-prose">
-      <p class="label mb-6">About</p>
-      <h1 class="font-serif text-4xl sm:text-5xl leading-tight tracking-tightish text-ink mb-8">
-        The reasoning layer beneath the decision.
-      </h1>
+  <!--
+    /about is image-driven, matching the editorial treatment used on
+    the landing and /experts pages. Each section pairs a small eyebrow
+    label SVG with a larger heading/body SVG so that the type renders
+    pixel-identical to the design without depending on font loading.
+    Intrinsic SVG dimensions, used here to preserve aspect ratios:
 
-      <div class="space-y-6 text-ink-muted leading-relaxed">
-        <p>
-          Discourse is a reasoning instrument for asset managers,
-          allocators, and enterprise risk practitioners who need to
-          stress-test a thesis against credible, articulated opposition.
-          It does not produce recommendations. It produces dialogue —
-          structured, attributed, and traceable to source.
-        </p>
+      about_label.svg            54x11
+      outsource_thinking.svg     577x94    (hero headline)
+      why_plato_label.svg        211x24
+      why_plato_text.svg         783x341   (large prose block)
+      our_pillars_label.svg      211x24
+      our_pillars_graphic.svg    900x143   (the three pillars graphic)
+      the_team_label.svg         175x19
+      the_team_text.svg          720x39
 
-        <h2 class="font-serif text-2xl text-ink pt-8">Method</h2>
-        <p>
-          Each expert is grounded in a corpus of their own words. For
-          living public figures with substantial written records — Warren
-          Buffett's shareholder letters, Larry Fink's annual letters,
-          Elon Musk's interviews and statements — we retrieve the most
-          topically relevant passages at debate time and use them to
-          shape the model's voice. For historical figures and others
-          with sparser usable corpora, we use a hand-curated quote bank
-          selected by similarity to the topic.
-        </p>
-        <p>
-          Plato moderates. He is template-based, not generative: his
-          opening, transitions, and closing follow Socratic structure
-          deliberately so the dialogue remains a dialogue and not a
-          summary.
-        </p>
-        <p>
-          Aporia is the critical layer. After a dialogue concludes, it
-          examines the transcript for unexamined assumptions, internal
-          contradictions, and the questions that were avoided. It is
-          named for the productive impasse Socrates sought — the moment
-          where one realizes that what seemed certain is not.
-        </p>
-
-        <h2 class="font-serif text-2xl text-ink pt-8">Limits</h2>
-        <p>
-          The experts are stylistic and substantive approximations, not
-          the people themselves. They are useful for stress-testing a
-          framing, surfacing a counter-argument you had not constructed,
-          or articulating a position from a vantage point you do not
-          inhabit. They are not oracles. None of the output constitutes
-          investment advice.
-        </p>
-
-        <h2 class="font-serif text-2xl text-ink pt-8">Intended use</h2>
-        <p>
-          Run Discourse before an investment committee meeting to
-          rehearse the strongest objections to a proposed view. Use it
-          to widen the frame on an enterprise risk scenario by inviting
-          a non-financial voice into a financial conversation. Use it
-          to find the assumption you did not know you were making.
-        </p>
-      </div>
-
-      <div class="mt-12">
-        <RouterLink to="/experts" class="btn-primary">
-          Start a Discourse
-        </RouterLink>
-      </div>
+    The full-bleed footer (silhouetted heads) is the same asset the
+    landing page uses; the site-wide footer in App.vue is suppressed
+    on this route so the heads sit flush at the bottom.
+  -->
+  <section class="max-w-page mx-auto px-6 pt-16 pb-20">
+    <!-- Hero: ABOUT eyebrow + "Outsource thinking?" headline -->
+    <div class="max-w-3xl">
+      <img
+        src="/about_label.svg"
+        alt="About"
+        class="h-[11px] w-auto mb-10"
+      />
+      <img
+        src="/outsource_thinking.svg"
+        alt="Outsource thinking?"
+        class="h-auto w-full max-w-[577px]"
+      />
     </div>
+
+    <!-- Why plato -->
+    <div class="mt-24 max-w-4xl">
+      <img
+        src="/why_plato_label.svg"
+        alt="Why plato"
+        class="h-[20px] w-auto mb-10"
+      />
+      <img
+        src="/why_plato_text.svg"
+        alt="Why plato"
+        class="h-auto w-full max-w-[783px]"
+      />
+    </div>
+
+    <!-- Our pillars -->
+    <div class="mt-24">
+      <img
+        src="/our_pillars_label.svg"
+        alt="Our pillars"
+        class="h-[20px] w-auto mb-10"
+      />
+      <img
+        src="/our_pillars_graphic.svg"
+        alt="Our pillars"
+        class="h-auto w-full max-w-[900px]"
+      />
+    </div>
+
+    <!-- The team -->
+    <div class="mt-24 max-w-4xl">
+      <img
+        src="/the_team_label.svg"
+        alt="The team"
+        class="h-[16px] w-auto mb-10"
+      />
+      <img
+        src="/the_team_text.svg"
+        alt="The team"
+        class="h-auto w-full max-w-[720px]"
+      />
+    </div>
+  </section>
+
+  <!--
+    Footer band — silhouetted heads, full bleed. Same treatment as the
+    landing and /experts pages: mt-auto pins it to the bottom of
+    <main> on tall screens, pt-24 keeps a comfortable gap above the
+    heads on shorter content. The site-wide App.vue footer is
+    suppressed on this route.
+
+    Hidden below `sm` (same reason as on the landing): at phone widths
+    the silhouettes squish into an unreadable grey blur. Restored at
+    tablet+ where there's room for the band to breathe.
+  -->
+  <section class="hidden sm:block mt-auto pt-24">
+    <img
+      src="/footer_landing.svg"
+      alt=""
+      aria-hidden="true"
+      class="w-full h-auto block select-none"
+      draggable="false"
+    />
   </section>
 </template>

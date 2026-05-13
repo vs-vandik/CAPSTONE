@@ -1,65 +1,64 @@
-"""Aporia: post-debate critical examination of each expert's argument.
+"""Aporia: post-debate dialectical examination of each expert's argument.
 
-Named after the Socratic concept of aporia (ἀπορία) — the productive
-puzzlement that arises when examining a belief reveals its unstated
-premises, its scope, and its real points of disagreement with rival
-views.
+Named after the Socratic aporia (ἀπορία) — the productive puzzlement
+that arises when an argument is taken apart into the premises it
+needs, the inferential moves it makes, and the things it says that
+cannot all be true at once.
 
-What this module does:
+Shape of the analysis: for each expert who spoke, one LLM call that
+sees *only* that expert's turns plus the topic, and returns three
+categories of dialectical critique:
 
-1. For each expert who spoke in the debate, make one LLM call that sees
-   *only* that expert's turns plus the topic, and asks the model to
-   recover the argument's structure: the core claim, the unstated
-   assumptions it rests on, the scope where it stops applying, and the
-   real points of friction with the other speakers.
-2. Then one synthesis call sees the per-expert summaries and the full
-   transcript, and produces a list of cross-cutting points: where the
-   debate actually disagrees (vs. talks past itself), and what questions
-   remain genuinely open.
+  1. Assumptions  — unstated premises the argument depends on.
+  2. Fallacies    — named errors of reasoning in what they said.
+  3. Contradictions — places where their own statements pull
+     against each other, or against something they implicitly granted.
 
-Why this shape: a single LLM pass over the whole transcript flattens
-each expert into one bullet. Splitting per-expert gives each persona
-real attention; the synthesis pass is for the things that only exist
-between speakers.
+No preamble, no closing sermon, no cross-speaker synthesis. The
+structure *is* the analysis. One LLM call per speaker; nothing more.
 
-Cost: N+1 LLM calls at the end of a debate, where N is the number of
-speakers. With Claude Haiku 4.5 at current DO pricing, a typical
-2-speaker, 6-turn debate adds ~3 calls of ~800 input + ~400 output
-tokens each. Well under one cent per click.
+Cost: N LLM calls at the end of a debate, where N is the number of
+speakers. With Claude Haiku 4.5 on DO Inference that's well under a
+cent per click for a 2-speaker debate.
 
-Output contract (consumed by `frontend/src/components/AporiaPanel.vue`
-and `backend/scripts/smoke_test.py`):
+Output contract (consumed by `frontend/src/components/AporiaPanel.vue`,
+`backend/scripts/smoke_test.py`):
 
     {
         "role": "plato",
         "type": "aporia",
-        "content": str,                    # human-readable preamble
-        "findings": [                       # flat list, frontend renders each
+        "content": "",                      # intentionally empty
+        "guidance": "",                     # intentionally empty
+        "speakers": [str, ...],
+        "experts": [
             {
-                "expert": str,              # display name, or "" for cross-cutting
-                "kind": str,                # "core_claim" | "assumption" |
-                                            #   "limit" | "clash" | "disagreement" |
-                                            #   "open_question"
-                "type": str,                # alias of `kind`, for back-compat
-                "title": str,               # short heading, used by the panel
-                "description": str,         # body text shown under the heading
-                "detail": str,              # alias of `description`
-                "question": str,            # Socratic prompt for the reader
+                "expert": str,              # display name
+                "assumptions":    [{"point": str, "why": str}, ...],
+                "fallacies":      [{"name": str, "point": str, "why": str}, ...],
+                "contradictions": [{"point": str, "why": str}, ...],
             },
             ...
         ],
-        "guidance": str,                    # human-readable footer
+        "findings": [                       # flat back-compat view
+            {
+                "expert": str,
+                "kind": "assumption" | "fallacy" | "contradiction",
+                "type": str,                # alias of kind
+                "title": str,               # short heading
+                "description": str,         # the dialectical point + why
+                "detail": str,              # alias of description
+            },
+            ...
+        ],
     }
 
-The `findings` shape is intentionally redundant (kind/type and
-description/detail and title) because the frontend renders the first
-field it finds. Keep both aliases populated. `expert == ""` marks a
-cross-cutting finding (disagreement or open question) rather than a
-per-expert one.
+The flat `findings` list is preserved for back-compat with any caller
+(smoke tests, older clients) that iterated it. The frontend renders
+the structured `experts[]` view; `findings[]` is its fallback.
 
 If the LLM is unavailable (no MODEL_ACCESS_KEY) or returns unparseable
-output, we degrade gracefully: the route returns a content-only message
-explaining that analysis could not run, rather than 500-ing.
+output, we degrade gracefully: the route returns an empty-experts
+response with a short content message rather than 500-ing.
 """
 
 from __future__ import annotations
@@ -94,16 +93,14 @@ def analyze(turns: List[Dict], mode: str = "simple") -> Dict:
     Args:
         turns: The session history, as built by `app.agents.discourse`.
             Each dict has at least `role`, `speaker`, `content`. Plato
-            turns are skipped for the per-expert analysis but kept for
-            the synthesis pass's full-transcript view.
+            turns are skipped — they moderate, they don't make claims.
         mode: Retained for back-compat with `Aporia.analyze(..., mode=)`
-            callers. Currently unused; both "simple" and "deep" run the
-            same LLM-backed analysis. Kept rather than removed so any
+            callers. Currently unused. Kept rather than removed so any
             existing caller doesn't crash on a stray kwarg.
 
     Returns:
         The dict described in the module docstring. Never raises on
-        LLM failure; degrades to a content-only message.
+        LLM failure; degrades to an empty-experts response.
     """
     del mode  # see docstring
 
@@ -118,11 +115,10 @@ def analyze(turns: List[Dict], mode: str = "simple") -> Dict:
             _analyze_expert(name, persona, persona_turns, topic)
             for name, persona, persona_turns in expert_turns
         ]
-        synthesis = _synthesize(per_expert, turns, topic)
     except RuntimeError as exc:
         # llm._get_client() raises RuntimeError when MODEL_ACCESS_KEY
         # is missing. Route handlers expect aporia to never blow up,
-        # so we surface this as a content-only response.
+        # so we surface this as an empty response.
         logger.warning("Aporia: LLM unavailable, returning stub. %s", exc)
         return _empty_response(reason="no_llm")
     except Exception:
@@ -132,9 +128,17 @@ def analyze(turns: List[Dict], mode: str = "simple") -> Dict:
         logger.exception("Aporia: analysis failed, returning stub.")
         return _empty_response(reason="error")
 
-    findings = _flatten_findings(per_expert, synthesis)
     speakers = [name for name, _persona, _turns in expert_turns]
-    return _format_response(findings, speakers, per_expert, synthesis, topic)
+    findings = _flatten_findings(per_expert)
+    return {
+        "role": "plato",
+        "type": "aporia",
+        "content": "",
+        "guidance": "",
+        "speakers": speakers,
+        "experts": per_expert,
+        "findings": findings,
+    }
 
 
 # Back-compat: smoke_test.py imports the convenience function.
@@ -153,20 +157,13 @@ def _analyze_expert(
     persona_turns: List[Dict],
     topic: str,
 ) -> Dict:
-    """One LLM call: recover the structure of a single expert's argument.
-
-    Args:
-        name: Display name as it appears in `turn["speaker"]`.
-        persona: The `Persona` object if `name` matches a known persona,
-            else None. Used only to anchor voice in the prompt; the
-            analysis itself is text-grounded in the turns.
-        persona_turns: Every turn by this expert, in order.
-        topic: The debate topic, for context.
+    """One LLM call: three dialectical categories for one speaker.
 
     Returns:
-        Dict with keys `expert`, `core_claim` (str), `assumptions`
-        (List[str]), `limits` (List[str]), `clashes` (List[Dict] each
-        with `with_whom`, `point`). Missing keys are coerced to empty.
+        Dict with keys `expert`, `assumptions` (List[Dict]),
+        `fallacies` (List[Dict]), `contradictions` (List[Dict]).
+        Each list item is `{point, why}` (or `{name, point, why}` for
+        fallacies). Missing keys are coerced to empty.
     """
     transcript = _format_persona_transcript(persona_turns)
 
@@ -181,156 +178,81 @@ def _analyze_expert(
     raw = llm.generate(
         system,
         [{"role": "user", "content": user}],
-        # A little colder than the debate itself — we want analysis,
-        # not flourish. Still leaves enough wiggle for the model to pick
-        # genuinely different assumptions across reruns.
-        temperature=0.4,
+        # Cold: we want rigor, not flourish.
+        temperature=0.3,
         max_tokens=700,
     )
 
     parsed = _parse_json_payload(raw)
     return {
         "expert": name,
-        "core_claim": _as_str(parsed.get("core_claim")),
-        "assumptions": _as_str_list(parsed.get("assumptions")),
-        "limits": _as_str_list(parsed.get("limits")),
-        "clashes": _as_clash_list(parsed.get("clashes")),
+        "assumptions": _as_point_list(parsed.get("assumptions")),
+        "fallacies": _as_fallacy_list(parsed.get("fallacies")),
+        "contradictions": _as_point_list(parsed.get("contradictions")),
     }
 
 
 # ==================
-# Synthesis pass
+# Flatten for back-compat findings list
 # ==================
 
 
-def _synthesize(
-    per_expert: List[Dict],
-    full_history: List[Dict],
-    topic: str,
-) -> Dict:
-    """One LLM call: cross-cutting findings the per-expert pass can't see.
+def _flatten_findings(per_expert: List[Dict]) -> List[Dict]:
+    """Render the structured per-expert output as a flat list.
 
-    Sees the per-expert summaries (so it doesn't have to re-derive them)
-    plus the full transcript (so it can name *actual* disagreements
-    rather than restated ones).
+    Kept so any consumer that iterated the old `findings[]` (smoke
+    tests, older clients) still has something to iterate. The frontend
+    prefers the structured `experts[]` view.
 
-    Returns:
-        Dict with keys `disagreements` (List[Dict] each with `between`,
-        `description`, `question`) and `open_questions` (List[Dict]
-        each with `description`, `question`). Missing keys coerced.
-    """
-    transcript = _format_full_transcript(full_history)
-    summaries = json.dumps(per_expert, ensure_ascii=False, indent=2)
-
-    system = _SYSTEM_SYNTHESIS
-    user = _USER_SYNTHESIS.format(
-        topic=topic,
-        summaries=summaries,
-        transcript=transcript,
-    )
-
-    raw = llm.generate(
-        system,
-        [{"role": "user", "content": user}],
-        temperature=0.4,
-        max_tokens=600,
-    )
-
-    parsed = _parse_json_payload(raw)
-    return {
-        "disagreements": _as_disagreement_list(parsed.get("disagreements")),
-        "open_questions": _as_question_list(parsed.get("open_questions")),
-    }
-
-
-# ==================
-# Flatten + format
-# ==================
-
-
-def _flatten_findings(per_expert: List[Dict], synthesis: Dict) -> List[Dict]:
-    """Turn structured per-expert + synthesis output into flat findings.
-
-    The frontend's `AporiaPanel` iterates one list. We map each piece
-    of structure (claim, assumption, limit, clash, disagreement,
-    open question) to one finding entry, in a stable reading order:
-
-    1. Each expert's core claim, then their assumptions, then their
-       limits, then their named clashes — one expert at a time.
-    2. Then cross-cutting disagreements.
-    3. Then open questions.
-
-    This is also the rendering order in the human-readable `content`.
+    Reading order, per expert in turn: assumptions, then fallacies,
+    then contradictions.
     """
     findings: List[Dict] = []
 
     for ex in per_expert:
         name = ex["expert"]
-        if ex["core_claim"]:
-            findings.append(_finding(
-                expert=name,
-                kind="core_claim",
-                title=f"{name}: core claim",
-                description=ex["core_claim"],
-                question=f"Is this really {name}'s claim, or a rhetorical wrapping?",
-            ))
         for a in ex["assumptions"]:
             findings.append(_finding(
                 expert=name,
                 kind="assumption",
                 title=f"{name}: assumption",
-                description=a,
-                question="Would the argument survive if this assumption failed?",
+                description=_combine(a.get("point"), a.get("why")),
             ))
-        for lim in ex["limits"]:
+        for f in ex["fallacies"]:
+            heading = f.get("name") or "fallacy"
             findings.append(_finding(
                 expert=name,
-                kind="limit",
-                title=f"{name}: scope limit",
-                description=lim,
-                question="Outside this scope, what argument would have to take over?",
+                kind="fallacy",
+                title=f"{name}: {heading}",
+                description=_combine(f.get("point"), f.get("why")),
             ))
-        for cl in ex["clashes"]:
-            other = cl.get("with_whom") or "another speaker"
-            point = cl.get("point") or ""
+        for c in ex["contradictions"]:
             findings.append(_finding(
                 expert=name,
-                kind="clash",
-                title=f"{name} vs. {other}",
-                description=point,
-                question=f"On this point, what evidence would change {name}'s mind? What about {other}'s?",
+                kind="contradiction",
+                title=f"{name}: contradiction",
+                description=_combine(c.get("point"), c.get("why")),
             ))
-
-    for d in synthesis["disagreements"]:
-        between = d.get("between") or []
-        between_str = " and ".join(between) if between else "the speakers"
-        findings.append(_finding(
-            expert="",
-            kind="disagreement",
-            title=f"Real disagreement: {between_str}",
-            description=d.get("description", ""),
-            question=d.get("question") or "What would settle this?",
-        ))
-
-    for q in synthesis["open_questions"]:
-        findings.append(_finding(
-            expert="",
-            kind="open_question",
-            title="Open question",
-            description=q.get("description", ""),
-            question=q.get("question") or "",
-        ))
 
     return findings
 
 
-def _finding(*, expert: str, kind: str, title: str, description: str, question: str) -> Dict:
-    """Build a finding dict with both new and legacy field names populated.
+def _combine(point: Optional[str], why: Optional[str]) -> str:
+    """Join the dialectical point and its 'why' into one paragraph."""
+    p = (point or "").strip()
+    w = (why or "").strip()
+    if p and w:
+        return f"{p} — {w}"
+    return p or w
 
-    `kind` is the canonical category; `type` is its alias so any
-    pre-existing consumer that grouped by `type` still works.
-    Likewise `detail` aliases `description` so the frontend's
-    `f.detail ?? f.description` lookup finds something either way.
+
+def _finding(*, expert: str, kind: str, title: str, description: str) -> Dict:
+    """Build a flat-finding dict with both new and legacy field names.
+
+    `kind` is the canonical category; `type` is its alias for any
+    pre-existing consumer that grouped by `type`. `detail` aliases
+    `description` so the panel's `f.detail ?? f.description` lookup
+    finds something either way.
     """
     return {
         "expert": expert,
@@ -339,99 +261,33 @@ def _finding(*, expert: str, kind: str, title: str, description: str, question: 
         "title": title,
         "description": description,
         "detail": description,
-        "question": question,
-    }
-
-
-def _format_response(
-    findings: List[Dict],
-    speakers: List[str],
-    per_expert: List[Dict],
-    synthesis: Dict,
-    topic: str,
-) -> Dict:
-    """Build the final response dict.
-
-    The `content` field is Plato's prose preamble — a brief
-    orientation, not the full analysis (the panel renders the
-    structured findings beneath it). The closing sermon goes in
-    `guidance`. Both are intentionally short.
-    """
-    if speakers:
-        if len(speakers) == 1:
-            who = speakers[0]
-        elif len(speakers) == 2:
-            who = f"{speakers[0]} and {speakers[1]}"
-        else:
-            who = ", ".join(speakers[:-1]) + f", and {speakers[-1]}"
-    else:
-        who = "the speakers"
-
-    content = (
-        "Aporia.\n\n"
-        f"I have re-read the dialogue between {who} on the question of {topic}. "
-        "What follows is not a verdict. It is a map of the ground each "
-        "argument actually stands on — the claims made, the assumptions "
-        "those claims rest on, the limits beyond which they no longer "
-        "apply, and the points where the speakers genuinely diverge "
-        "rather than merely talk past one another."
-    )
-
-    guidance = (
-        "Aporia is not a weakness. It is the beginning of wisdom. "
-        "Each assumption above is a place where the argument could fail "
-        "and where your own judgment must enter. Press on the assumptions "
-        "you find least credible; let the limits tell you which expert's "
-        "frame fits the part of the problem you actually care about."
-    )
-
-    return {
-        "role": "plato",
-        "type": "aporia",
-        "content": content,
-        "findings": findings,
-        "guidance": guidance,
-        # Optional structured fields, for callers (or future frontend
-        # work) that want to render expert cards rather than a flat
-        # list. Not depended on by the current UI.
-        "experts": per_expert,
-        "disagreements": synthesis["disagreements"],
-        "open_questions": synthesis["open_questions"],
-        "speakers": speakers,
     }
 
 
 def _empty_response(*, reason: str) -> Dict:
-    """Degraded response when analysis can't run. Never the steady state."""
+    """Degraded response when analysis can't run.
+
+    We still set `content` here (briefly) because the structured
+    `experts[]` is empty — the frontend has nothing else to render,
+    so a single line explains why.
+    """
     if reason == "no_experts":
-        content = (
-            "Aporia.\n\n"
-            "The dialogue has not yet produced an expert turn. Let the "
-            "speakers state their positions, then return."
-        )
+        content = "The dialogue has not yet produced an expert turn."
     elif reason == "no_llm":
         content = (
-            "Aporia.\n\n"
             "The model that performs this analysis is not configured "
-            "on this instance. Set MODEL_ACCESS_KEY in backend/.env "
-            "and try again."
+            "on this instance."
         )
     else:
-        content = (
-            "Aporia.\n\n"
-            "I could not complete the examination. The dialogue stands "
-            "as it is; read it again with your own ear."
-        )
+        content = "Examination could not complete."
     return {
         "role": "plato",
         "type": "aporia",
         "content": content,
-        "findings": [],
         "guidance": "",
-        "experts": [],
-        "disagreements": [],
-        "open_questions": [],
         "speakers": [],
+        "experts": [],
+        "findings": [],
     }
 
 
@@ -443,8 +299,8 @@ def _empty_response(*, reason: str) -> Dict:
 def get_button_info() -> Dict:
     return {
         "label": "Aporia",
-        "description": "Examine each expert's claims, assumptions, and limits.",
-        "tooltip": "Aporia: surface the premises and points of real disagreement.",
+        "description": "Surface each speaker's assumptions, fallacies, and contradictions.",
+        "tooltip": "Aporia: a dialectical breakdown of the arguments made.",
         "icon": "A",
     }
 
@@ -454,80 +310,44 @@ def get_button_info() -> Dict:
 # ==================
 
 
-_SYSTEM_PER_EXPERT = """You are a philosophical analyst working in the Socratic tradition. Your job is to examine one speaker's contribution to a debate and recover the structure of their argument: the claim, the premises it rests on, the scope where it applies, and the points where it engages — or fails to engage — with rival views.
+_SYSTEM_PER_EXPERT = """You are a philosophical analyst working in the Socratic-dialectical tradition. You examine one speaker's contribution to a debate and produce a rigorous, point-by-point critique under three fixed headings: assumptions, fallacies, and contradictions.
 
 You are analyzing {name}{bio_line}.
 
-Be rigorous, not generous. Do not paraphrase what the speaker said and call it an assumption — an assumption is something they did NOT say but their argument requires to be true. Do not list rhetorical hedges as limits — a limit is a real scope condition outside which their argument stops applying. Quote no one verbatim; render claims in your own neutral prose.
+Definitions — hold to these strictly:
+
+- ASSUMPTION: an unstated premise the speaker's argument requires to be true. It is NOT something they said; it is something they did NOT say but had to be granted for what they said to follow. State it as a proposition that someone could agree or disagree with.
+
+- FALLACY: a specific, named error of reasoning in what the speaker actually said. Use the established name (e.g. "appeal to authority", "hasty generalization", "equivocation", "false dichotomy", "post hoc", "begging the question", "ad hominem", "straw man", "no true Scotsman", "composition", "division", "non sequitur"). If you cannot name a specific fallacy, do not list one — better an empty list than vague hand-waving.
+
+- CONTRADICTION: a place where two things the speaker said cannot both be true, OR where what they said pulls against something they implicitly granted earlier in the same turn or in another. Quote nothing verbatim; render the conflict in your own neutral prose.
+
+Be parsimonious. Quality over quantity. Each list should contain 0 to 3 items. If a category has no genuine content for this speaker, return an empty array — do NOT invent items to fill space. A speaker who reasoned cleanly may legitimately have zero fallacies.
+
+Each item must include a tight one-clause "point" and a one-sentence "why" that justifies the diagnosis with reference to what the speaker actually said.
 
 Output STRICT JSON with this exact shape, and nothing else:
 
 {{
-  "core_claim": "<one or two sentences: the main argument this speaker advanced. Not a summary of what they said, but the proposition they want the audience to walk away believing.>",
   "assumptions": [
-    "<an unstated premise their argument depends on. Stated as a proposition someone could agree or disagree with.>",
-    "<another assumption, if any. 1-3 total. Quality over quantity. If only one is genuinely present, return only one.>"
+    {{"point": "<the unstated premise, as a proposition>", "why": "<one sentence: why the argument needs this to be true>"}}
   ],
-  "limits": [
-    "<a real scope condition: where, when, or under what circumstance the argument stops applying. 1-3 total.>"
+  "fallacies": [
+    {{"name": "<established name of the fallacy>", "point": "<what move in the argument commits it>", "why": "<one sentence: why that move is fallacious here>"}}
   ],
-  "clashes": [
-    {{"with_whom": "<other speaker's name as it appears in the transcript>", "point": "<one sentence stating the substantive point on which they actually diverge, not a stylistic difference>"}}
+  "contradictions": [
+    {{"point": "<the conflict, stated as two claims that can't both hold>", "why": "<one sentence: how the speaker is committed to both>"}}
   ]
 }}
 
-If a field has no genuine content for this speaker, return an empty array (or an empty string for core_claim). Do not invent. Do not pad. Return only the JSON object."""
+Return only the JSON object. No preamble, no closing remarks, no code fences."""
 
 
 _USER_PER_EXPERT = """Topic of the debate: {topic}
 
-Below are all of {name}'s contributions to the debate, in order. Read them carefully, then produce the analysis described in the system instructions.
+Below are all of {name}'s contributions to the debate, in order. Read them carefully, then produce the three-category dialectical critique described in the system instructions.
 
 --- {name}'s turns ---
-{transcript}
---- end ---
-
-Return only the JSON object."""
-
-
-_SYSTEM_SYNTHESIS = """You are a philosophical analyst working in the Socratic tradition. You have already received structured summaries of each speaker in a debate. Your job now is to do what no single per-speaker analysis can do: identify the cross-cutting tensions in the debate as a whole.
-
-Two distinct things to surface:
-
-1. REAL disagreements — points where two or more speakers actually contradict each other on a substantive question, not where they merely emphasize different things or use different vocabulary for the same underlying claim. If the speakers are talking past each other, name that explicitly as the disagreement.
-
-2. OPEN questions — questions raised by the debate (explicitly or implicitly by what nobody addressed) that none of the speakers answered. These should be questions whose answer would meaningfully change which speaker is right.
-
-Be parsimonious. A debate with no real disagreement should yield an empty disagreements array. A debate that closes every question it raises should yield an empty open_questions array. Quality over quantity: 1-3 of each is usually right.
-
-Output STRICT JSON with this exact shape, and nothing else:
-
-{
-  "disagreements": [
-    {
-      "between": ["<speaker A>", "<speaker B>"],
-      "description": "<one or two sentences naming the substantive proposition they disagree on>",
-      "question": "<a Socratic question that, if answered, would resolve the disagreement>"
-    }
-  ],
-  "open_questions": [
-    {
-      "description": "<one or two sentences naming the question the debate left unanswered>",
-      "question": "<the question itself, phrased as a question the reader could carry forward>"
-    }
-  ]
-}
-
-Return only the JSON object."""
-
-
-_USER_SYNTHESIS = """Topic of the debate: {topic}
-
-Per-speaker analyses already produced:
-{summaries}
-
-Full transcript (for grounding — do not re-summarize per-speaker, just use it to verify what each speaker actually said):
---- transcript ---
 {transcript}
 --- end ---
 
@@ -610,18 +430,6 @@ def _format_persona_transcript(persona_turns: List[Dict]) -> str:
     return "\n\n".join(lines) if lines else "(no turns)"
 
 
-def _format_full_transcript(turns: List[Dict]) -> str:
-    """Render the full debate, lightly truncated per turn, including Plato."""
-    lines = []
-    for t in turns:
-        speaker = t.get("speaker") or t.get("role") or "?"
-        content = (t.get("content") or "").strip()
-        if len(content) > _MAX_TURN_CHARS:
-            content = content[:_MAX_TURN_CHARS].rstrip() + "..."
-        lines.append(f"{speaker}: {content}")
-    return "\n\n".join(lines) if lines else "(no turns)"
-
-
 # ==================
 # JSON parsing
 # ==================
@@ -633,7 +441,7 @@ _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 def _parse_json_payload(raw: str) -> Dict:
     """Best-effort JSON extraction from an LLM response.
 
-    The system prompts demand a bare JSON object, but models routinely
+    The system prompt demands a bare JSON object, but models routinely
     wrap output in ```json ... ``` fences, add a leading "Here is the
     analysis:", or trail explanatory prose. We strip fences, then fall
     back to a regex that grabs the first {...} span. If both fail, we
@@ -643,18 +451,15 @@ def _parse_json_payload(raw: str) -> Dict:
     """
     if not raw:
         return {}
-    # Strip code fences.
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned)
         cleaned = re.sub(r"\s*```\s*$", "", cleaned)
-    # Try direct parse.
     try:
         obj = json.loads(cleaned)
         return obj if isinstance(obj, dict) else {}
     except json.JSONDecodeError:
         pass
-    # Try to grab the first {...} span.
     m = _JSON_OBJECT_RE.search(cleaned)
     if m:
         try:
@@ -672,61 +477,36 @@ def _as_str(v) -> str:
     return ""
 
 
-def _as_str_list(v) -> List[str]:
-    if not isinstance(v, list):
-        return []
-    out = []
-    for item in v:
-        if isinstance(item, str) and item.strip():
-            out.append(item.strip())
-    return out
-
-
-def _as_clash_list(v) -> List[Dict]:
+def _as_point_list(v) -> List[Dict]:
+    """Coerce a list of `{point, why}` items, dropping empties."""
     if not isinstance(v, list):
         return []
     out = []
     for item in v:
         if not isinstance(item, dict):
             continue
-        with_whom = _as_str(item.get("with_whom"))
         point = _as_str(item.get("point"))
-        if point:  # with_whom is allowed to be empty; point isn't
-            out.append({"with_whom": with_whom, "point": point})
+        why = _as_str(item.get("why"))
+        if point or why:
+            out.append({"point": point, "why": why})
     return out
 
 
-def _as_disagreement_list(v) -> List[Dict]:
+def _as_fallacy_list(v) -> List[Dict]:
+    """Coerce a list of `{name, point, why}` items, dropping empties."""
     if not isinstance(v, list):
         return []
     out = []
     for item in v:
         if not isinstance(item, dict):
             continue
-        between = item.get("between")
-        between_list = [_as_str(x) for x in between if _as_str(x)] if isinstance(between, list) else []
-        description = _as_str(item.get("description"))
-        question = _as_str(item.get("question"))
-        if description:
-            out.append({
-                "between": between_list,
-                "description": description,
-                "question": question,
-            })
-    return out
-
-
-def _as_question_list(v) -> List[Dict]:
-    if not isinstance(v, list):
-        return []
-    out = []
-    for item in v:
-        if not isinstance(item, dict):
-            continue
-        description = _as_str(item.get("description"))
-        question = _as_str(item.get("question"))
-        if description or question:
-            out.append({"description": description, "question": question})
+        name = _as_str(item.get("name"))
+        point = _as_str(item.get("point"))
+        why = _as_str(item.get("why"))
+        # A nameless fallacy isn't worth listing — the rigor comes
+        # from naming the move.
+        if name and (point or why):
+            out.append({"name": name, "point": point, "why": why})
     return out
 
 

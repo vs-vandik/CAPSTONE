@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AporiaResult } from '@/types'
+import type { AporiaExpert, AporiaPoint, AporiaResult } from '@/types'
 import { renderParagraphs } from '@/services/format'
 
 const props = defineProps<{
@@ -13,23 +13,27 @@ defineEmits<{
   (e: 'close'): void
 }>()
 
-const headerHtml = computed(() =>
-  props.result ? renderParagraphs(props.result.content) : '',
-)
+// `content` is empty in the steady state. It's only populated for
+// degraded responses (no LLM, no expert turns, parse error) to
+// explain why no structured findings are below. Treat its presence
+// as the signal to render a banner — never render it alongside a
+// populated experts list.
+const degradedMessageHtml = computed(() => {
+  if (!props.result) return ''
+  if (props.result.experts.length > 0) return ''
+  return props.result.content ? renderParagraphs(props.result.content) : ''
+})
 
-const findings = computed(() => props.result?.findings ?? [])
-const guidanceHtml = computed(() =>
-  props.result ? renderParagraphs(props.result.guidance) : '',
-)
+const experts = computed<AporiaExpert[]>(() => props.result?.experts ?? [])
 
-function findingTitle(f: Record<string, unknown>): string {
-  return (
-    String(f.title ?? f.type ?? f.kind ?? 'Finding')
-  ).toString()
+// A point is worth showing as long as it has either a `point` or a
+// `why` — defensive against a model that fills only one field.
+function hasContent(p: AporiaPoint): boolean {
+  return Boolean((p.point && p.point.trim()) || (p.why && p.why.trim()))
 }
-function findingBody(f: Record<string, unknown>): string {
-  const body = f.detail ?? f.description ?? f.content ?? ''
-  return typeof body === 'string' ? body : JSON.stringify(body)
+
+function pointsOf(list: AporiaPoint[] | undefined): AporiaPoint[] {
+  return (list ?? []).filter(hasContent)
 }
 </script>
 
@@ -37,17 +41,14 @@ function findingBody(f: Record<string, unknown>): string {
   <!--
     Two layouts behind a `sm:` breakpoint:
 
-    Mobile (< sm): bottom sheet. Slides up from the bottom, takes the
-    full width, max-height 85vh so the user can still see the bottom of
-    the transcript above it. Rounded top corners and a small drag
-    handle communicate "dismissable sheet."
+    Mobile (< sm): bottom sheet. Slides up, takes full width,
+    max-height 85vh.
 
-    Desktop (sm+): right-side drawer, 480px wide, full height. The
-    original layout.
+    Desktop (sm+): right-side drawer, 480px wide, full height.
 
-    Transition direction differs per breakpoint (translateY on mobile,
-    translateX on desktop). We use a CSS media query inside the scoped
-    style block to switch which transform applies.
+    Transition direction differs per breakpoint (translateY mobile,
+    translateX desktop), driven by a CSS media query in the scoped
+    style block.
   -->
   <transition name="aporia">
     <aside
@@ -60,12 +61,7 @@ function findingBody(f: Record<string, unknown>): string {
       aria-labelledby="aporia-title"
       style="padding-bottom: env(safe-area-inset-bottom);"
     >
-      <!--
-        Drag-handle bar at the top of the mobile sheet. Visual
-        affordance only — not functionally draggable in v1. Hidden on
-        desktop where the right-side drawer reads as a panel, not a
-        sheet.
-      -->
+      <!-- Drag-handle bar on the mobile sheet. Visual affordance only. -->
       <div
         class="sm:hidden mx-auto h-1 w-10 rounded-full bg-border my-2"
         aria-hidden="true"
@@ -77,16 +73,9 @@ function findingBody(f: Record<string, unknown>): string {
         <div>
           <p class="label">Aporia</p>
           <h2 id="aporia-title" class="font-serif text-xl text-ink">
-            Critical examination
+            Dialectical examination
           </h2>
         </div>
-        <!--
-          Close button: 44x44 hit area on mobile (iOS HIG floor); on
-          desktop, the ghost-button shape with text label is preserved.
-          The `min-h-[44px] min-w-[44px]` floor applies everywhere
-          rather than only at <sm, because a cursor-tap on a 24px
-          button is just as annoying as a thumb-tap.
-        -->
         <button
           class="btn-ghost min-h-[44px] min-w-[44px] px-3"
           aria-label="Close"
@@ -102,41 +91,131 @@ function findingBody(f: Record<string, unknown>): string {
         </div>
 
         <div v-else-if="result">
+          <!--
+            Degraded responses (no expert turns yet, no LLM configured,
+            parse error) carry a one-line `content` and an empty
+            `experts[]`. Render that line and nothing else.
+          -->
           <div
-            v-if="headerHtml"
-            class="prose-aporia text-ink-muted leading-relaxed font-serif italic mb-8"
-            v-html="headerHtml"
+            v-if="degradedMessageHtml"
+            class="prose-aporia text-ink-muted leading-relaxed font-serif italic"
+            v-html="degradedMessageHtml"
           />
 
-          <div v-if="findings.length" class="space-y-5 mb-8">
-            <p class="label">Findings</p>
-            <article
-              v-for="(f, i) in findings"
-              :key="i"
-              class="border-l-2 border-border-strong pl-4 py-1"
-            >
-              <h3 class="font-serif text-base text-ink mb-1">
-                {{ findingTitle(f as Record<string, unknown>) }}
-              </h3>
-              <p class="text-sm text-ink-muted leading-relaxed">
-                {{ findingBody(f as Record<string, unknown>) }}
-              </p>
-            </article>
-          </div>
-          <p
-            v-else
-            class="text-sm text-ink-faint italic mb-8"
+          <!--
+            Steady state: one section per expert, each with three
+            fixed subheadings. Empty categories are simply omitted —
+            an expert who reasoned cleanly may have zero fallacies,
+            and rendering "(none)" three times would be noise.
+          -->
+          <section
+            v-for="ex in experts"
+            :key="ex.expert"
+            class="mb-10 last:mb-0"
           >
-            No discrete findings surfaced.
-          </p>
+            <h3 class="font-serif text-lg text-ink mb-4 pb-2 border-b border-border-strong">
+              {{ ex.expert }}
+            </h3>
 
-          <div v-if="guidanceHtml">
-            <p class="label mb-2">Guidance</p>
-            <div
-              class="prose-aporia text-ink leading-relaxed"
-              v-html="guidanceHtml"
-            />
-          </div>
+            <!-- Assumptions -->
+            <div v-if="pointsOf(ex.assumptions).length" class="mb-6 last:mb-0">
+              <p class="label mb-3">Assumptions</p>
+              <ol class="space-y-3">
+                <li
+                  v-for="(p, i) in pointsOf(ex.assumptions)"
+                  :key="`a-${i}`"
+                  class="border-l-2 border-border-strong pl-4 py-1"
+                >
+                  <p
+                    v-if="p.point"
+                    class="font-serif text-base text-ink mb-1"
+                  >
+                    {{ p.point }}
+                  </p>
+                  <p
+                    v-if="p.why"
+                    class="text-sm text-ink-muted leading-relaxed"
+                  >
+                    {{ p.why }}
+                  </p>
+                </li>
+              </ol>
+            </div>
+
+            <!-- Fallacies (named) -->
+            <div v-if="pointsOf(ex.fallacies).length" class="mb-6 last:mb-0">
+              <p class="label mb-3">Fallacies</p>
+              <ol class="space-y-3">
+                <li
+                  v-for="(p, i) in pointsOf(ex.fallacies)"
+                  :key="`f-${i}`"
+                  class="border-l-2 border-border-strong pl-4 py-1"
+                >
+                  <!--
+                    The named fallacy is the centerpiece of this
+                    entry — render it as a small uppercase chip above
+                    the dialectical point itself.
+                  -->
+                  <p
+                    v-if="p.name"
+                    class="inline-block text-[10px] tracking-[0.12em] uppercase text-ink-faint mb-1"
+                  >
+                    {{ p.name }}
+                  </p>
+                  <p
+                    v-if="p.point"
+                    class="font-serif text-base text-ink mb-1"
+                  >
+                    {{ p.point }}
+                  </p>
+                  <p
+                    v-if="p.why"
+                    class="text-sm text-ink-muted leading-relaxed"
+                  >
+                    {{ p.why }}
+                  </p>
+                </li>
+              </ol>
+            </div>
+
+            <!-- Contradictions -->
+            <div v-if="pointsOf(ex.contradictions).length" class="mb-6 last:mb-0">
+              <p class="label mb-3">Contradictions</p>
+              <ol class="space-y-3">
+                <li
+                  v-for="(p, i) in pointsOf(ex.contradictions)"
+                  :key="`c-${i}`"
+                  class="border-l-2 border-border-strong pl-4 py-1"
+                >
+                  <p
+                    v-if="p.point"
+                    class="font-serif text-base text-ink mb-1"
+                  >
+                    {{ p.point }}
+                  </p>
+                  <p
+                    v-if="p.why"
+                    class="text-sm text-ink-muted leading-relaxed"
+                  >
+                    {{ p.why }}
+                  </p>
+                </li>
+              </ol>
+            </div>
+
+            <!--
+              All three categories empty for this speaker. Surface that
+              cleanly rather than leaving the expert's heading hanging.
+            -->
+            <p
+              v-if="!pointsOf(ex.assumptions).length
+                && !pointsOf(ex.fallacies).length
+                && !pointsOf(ex.contradictions).length"
+              class="text-sm text-ink-faint italic"
+            >
+              No assumptions, fallacies, or contradictions surfaced.
+            </p>
+          </section>
         </div>
 
         <div v-else class="text-sm text-ink-muted">
@@ -155,7 +234,6 @@ function findingBody(f: Record<string, unknown>): string {
 /*
   Mobile (< 640px): slide up from the bottom.
   Desktop (>= 640px): slide in from the right.
-  Two media queries keep the transform direction matching the layout.
 */
 .aporia-enter-from,
 .aporia-leave-to {

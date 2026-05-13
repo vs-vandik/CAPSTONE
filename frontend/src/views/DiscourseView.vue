@@ -66,6 +66,16 @@ const isLoading = computed(() => store.status === 'loading')
 const isDone = computed(() => store.status === 'done')
 const isEmpty = computed(() => store.turns.length === 0)
 const canContinue = computed(() => !isLoading.value && !isDone.value && !isEmpty.value)
+// While the backend is generating the next turn, surface *who* is
+// thinking when we can. Plato's turns are template-based and effectively
+// instant, so the only loading states the user actually sees are expert
+// turns — which means most of the time we have a concrete name to show.
+// Falls back to "— thinking —" when we can't determine the speaker
+// (e.g. opening turn, or somehow no personas loaded).
+const thinkingLabel = computed(() => {
+  const p = store.nextExpertSpeaker
+  return p ? `${p.name} is thinking…` : '— thinking —'
+})
 const advanceLabel = computed(() => {
   if (isLoading.value) return 'Thinking…'
   if (isDone.value) return 'Dialogue concluded'
@@ -152,7 +162,7 @@ async function endSession() {
         class="my-6 text-center text-sm text-ink-faint"
         aria-live="polite"
       >
-        <span class="inline-block animate-pulse">— thinking —</span>
+        <span class="inline-block animate-pulse">{{ thinkingLabel }}</span>
       </div>
 
       <!-- Per-turn nudge: tell the user how to advance, sitting just

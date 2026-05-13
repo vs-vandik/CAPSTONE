@@ -64,6 +64,43 @@ export const useDiscourseStore = defineStore('discourse', {
         state.status === 'active' || state.status === 'idle'
       )
     },
+    /**
+     * Persona about to speak on the next /next call, when that turn
+     * will be an expert turn. Returns null if Plato is up next (opening,
+     * transition, closing) or if we don't have enough state to decide.
+     *
+     * Mirrors the backend rotation in `backend/app/agents/discourse.py`:
+     *   - empty history             -> Plato opens
+     *   - last turn was Plato       -> the matching expert speaks
+     *   - last turn was an expert,
+     *     hit max_turns budget      -> Plato closes
+     *   - last turn was an expert,
+     *     under budget              -> Plato transitions (template, fast)
+     *
+     * So the only state in which we want to surface an expert name in
+     * the "thinking" indicator is when the most recent turn is from
+     * Plato and an expert is queued. Order of `selectedPersonas` is
+     * authoritative; round-robin index is `expertTurnsSoFar % n`.
+     */
+    nextExpertSpeaker(state): Persona | null {
+      const personas = (this as unknown as { selectedPersonas: Persona[] })
+        .selectedPersonas
+      if (personas.length === 0) return null
+
+      const history = state.turns
+      if (history.length === 0) return null // Plato opens
+
+      const last = history[history.length - 1]
+      // If last turn was Plato (opening or transition), an expert is next.
+      // After an expert speaks, Plato always interjects (transition or
+      // closing) before the next expert, so we never need to predict the
+      // *expert-after-Plato-after-expert* hop here.
+      if (last.role !== 'plato') return null
+
+      const expertTurnsSoFar = history.filter((t) => t.role === 'expert').length
+      const idx = expertTurnsSoFar % personas.length
+      return personas[idx] ?? null
+    },
   },
 
   actions: {

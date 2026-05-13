@@ -36,7 +36,7 @@ const route = useRoute()
       fine-print band beneath the heads.
     -->
     <footer
-      v-if="route.name !== 'home' && route.name !== 'experts'"
+      v-if="route.name !== 'home' && route.name !== 'experts' && route.name !== 'about'"
       class="border-t border-border mt-24"
     >
       <div

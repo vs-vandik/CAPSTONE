@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDiscourseStore } from '@/stores/discourse'
+import { useSpeechRecognition } from '@/services/voice'
 
 const store = useDiscourseStore()
 const router = useRouter()
@@ -12,6 +13,36 @@ const draft = ref(store.topic)
 const submitting = ref(false)
 
 const canContinue = computed(() => draft.value.trim().length > 0)
+
+// Speech-to-text for the proposition field. We track whatever was in
+// the textarea before recording started so each utterance appends to
+// (rather than replaces) the user's typed text. The composable's
+// transcript replaces the appended portion in real time, including
+// while it is still interim — gives the user immediate visual feedback
+// that the recognizer heard them.
+const draftBeforeListen = ref('')
+const speech = useSpeechRecognition({
+  onUpdate(text) {
+    const prefix = draftBeforeListen.value
+    if (!prefix) {
+      draft.value = text
+    } else {
+      // Preserve a single space between the existing text and the new
+      // utterance unless the user's text already ends with whitespace.
+      const sep = /\s$/.test(prefix) ? '' : ' '
+      draft.value = prefix + sep + text
+    }
+  },
+})
+
+function toggleMic() {
+  if (speech.listening.value) {
+    speech.stop()
+    return
+  }
+  draftBeforeListen.value = draft.value
+  speech.start()
+}
 
 // Suggested propositions for asset managers / enterprise risk.
 // Framed as debatable claims, not yes/no questions, so personas have
@@ -86,18 +117,67 @@ async function submit() {
       >
         Proposition
       </label>
-      <textarea
-        id="topic"
-        v-model="draft"
-        rows="3"
-        class="input font-serif text-lg leading-snug"
-        placeholder="e.g. Climate transition risk is mispriced across investment-grade credit."
-        @keydown.enter.exact.prevent="submit"
-        @keydown.meta.enter.prevent="submit"
-        @keydown.ctrl.enter.prevent="submit"
-      />
+      <!--
+        Textarea + microphone button. The mic floats in the top-right
+        corner of the textarea so it doesn't disturb the page rhythm.
+        Hidden entirely when SpeechRecognition is unavailable
+        (Firefox, older Safari) — the typed flow keeps working
+        unchanged. Clicking the mic appends speech to whatever is
+        already in the textarea rather than replacing it, so users can
+        mix typing and dictation freely.
+      -->
+      <div class="relative">
+        <textarea
+          id="topic"
+          v-model="draft"
+          rows="3"
+          class="input font-serif text-lg leading-snug"
+          :class="{ 'pr-12': speech.supported.value }"
+          placeholder="e.g. Climate transition risk is mispriced across investment-grade credit."
+          @keydown.enter.exact.prevent="submit"
+          @keydown.meta.enter.prevent="submit"
+          @keydown.ctrl.enter.prevent="submit"
+        />
+        <button
+          v-if="speech.supported.value"
+          type="button"
+          class="mic-btn"
+          :class="{ 'mic-btn--listening': speech.listening.value }"
+          :aria-label="speech.listening.value ? 'Stop dictation' : 'Dictate proposition'"
+          :aria-pressed="speech.listening.value"
+          @click="toggleMic"
+        >
+          <!-- Inline SVG keeps us free of any icon-font dependency. -->
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="9" y="3" width="6" height="12" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0" />
+            <line x1="12" y1="18" x2="12" y2="21" />
+            <line x1="9" y1="21" x2="15" y2="21" />
+          </svg>
+        </button>
+      </div>
       <p class="text-xs text-ink-faint mt-2">
         Press Enter to begin. Use Shift+Enter for a new line.
+        <span v-if="speech.supported.value">
+          Click the microphone to dictate.
+        </span>
+      </p>
+      <p
+        v-if="speech.error.value"
+        class="text-xs text-red-700 mt-1"
+        role="alert"
+      >
+        Microphone error: {{ speech.error.value }}
       </p>
 
       <div class="mt-10">
@@ -136,3 +216,53 @@ async function submit() {
     </div>
   </section>
 </template>
+
+<style scoped>
+/* Mic button: small circular control floated inside the textarea's
+   top-right corner. Sized to feel like part of the field, not a
+   separate widget. Color matches the ink palette in idle state and
+   shifts to a soft red while recording so the user always knows the
+   mic is live. */
+.mic-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid theme('colors.border');
+  border-radius: 9999px;
+  background: theme('colors.surface');
+  color: theme('colors.ink-muted');
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.mic-btn:hover {
+  color: theme('colors.ink');
+  border-color: theme('colors.border-strong');
+}
+.mic-btn:focus-visible {
+  outline: 2px solid theme('colors.ink-muted');
+  outline-offset: 2px;
+}
+.mic-btn--listening {
+  color: #b91c1c;            /* red-700 */
+  border-color: #b91c1c66;
+  background: #fef2f2;        /* red-50 */
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(185, 28, 28, 0.18);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic-btn--listening {
+    animation: none;
+  }
+}
+</style>
