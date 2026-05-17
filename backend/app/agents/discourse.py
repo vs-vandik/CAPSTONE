@@ -41,7 +41,7 @@ DEFAULT_MAX_TURNS = 6
 
 # Keep expert turns compact while leaving enough room for persona voice, humor,
 # and paragraph breaks. Plato and Aporia keep using the global LLM setting.
-EXPERT_TURN_MAX_TOKENS = 380
+EXPERT_TURN_MAX_TOKENS = 190
 EVIDENCE_PER_TURN = 5
 RETRIEVAL_CONTEXT_TURNS = 3
 MESSAGE_CONTEXT_TURNS = 8
@@ -194,8 +194,9 @@ def _build_system_prompt(
             "there is tension between speed, brevity, and persona, preserve "
             "persona. Keep the quirks, favorite obsessions, private "
             "vocabulary, humor, metaphors, and argumentative habits that make "
-            "this expert recognizable. A slightly longer, more alive answer "
-            "is better than a short clean answer."
+            "this expert recognizable. When you must shorten, cut the second "
+            "argument, the throat-clearing, and the abstract explanation; do "
+            "not cut the persona's signature turn of mind."
         ),
     ]
 
@@ -304,23 +305,27 @@ def _build_system_prompt(
         "habit of thought, not as quoted evidence. If only one item is "
         "relevant, use it deeply rather than name-dropping several weak ones.",
         "",
-        "Speak as yourself in 2-3 compact paragraphs, roughly 130-220 words "
-        "total. Let the previous expert's point provoke the answer when "
-        "there is one; do not merely add your own adjacent opinion. Attack "
-        "one important assumption or failure mode, and make the attack feel "
-        "like it could only come from this persona. Do not force the "
-        "reference into the first sentence. "
+        "Speak as yourself in exactly 2 compact paragraphs and no more than "
+        "4 sentences total, roughly 85-130 words. Each sentence must earn "
+        "its place. Let the previous "
+        "expert's point provoke the answer when there is one; do not merely "
+        "add your own adjacent opinion. Attack one important assumption or "
+        "failure mode, and make the attack feel like it could only come from "
+        "this persona. Do not force the reference into the first sentence. "
         "Do not use the polished explanatory scaffold 'That is why..., "
         "not because..., but because...' or close variants such as 'This is "
         "not because X, but because Y.' Make contrasts more direct and "
         "less formulaic. "
         "Keep the persona's distinctive tone, vocabulary, analogies, and "
-        "habitual obsessions intact. Include one vivid persona-specific "
-        "aside, image, jab, or analogy when it fits. Compress by choosing "
-        "one main argument and one concrete clash; do not stack several "
-        "arguments or drift into generic explanation. Do not break "
-        "character. Do not announce yourself ('As Warren Buffett, I...'); "
-        "just speak.",
+        "habitual obsessions intact. Include exactly one vivid persona-"
+        "specific aside, image, jab, or analogy when it fits. Compress by "
+        "choosing one main argument, one concrete clash, and no more than "
+        "one illustrative example; do not add setup, recap, or extra "
+        "institutional framing; do not stack "
+        "several arguments or drift into generic explanation. End as soon "
+        "as the blow has landed. Do not use stage directions, italicized "
+        "gestures, or physical narration. Do not break character. Do not "
+        "announce yourself ('As Warren Buffett, I...'); just speak.",
     ])
 
     return "\n".join(parts)
@@ -362,7 +367,9 @@ def _persona_turn_guidance(persona: Persona) -> str:
             "clients, then connect it to capital markets, retirement, "
             "demographics, energy transition, or resilience. Be measured and "
             "boardroom-clear. The signature move is acknowledging complexity "
-            "while still naming where capital should flow."
+            "while still naming where capital should flow. Do not write an "
+            "annual-letter paragraph; in short mode, use four clean boardroom "
+            "sentences at most, and keep each sentence short."
         ),
         "musk": (
             "Musk-specific short answer rule: write like a thread or a burst "
@@ -381,14 +388,19 @@ def _persona_turn_guidance(persona: Persona) -> str:
             "order is enough. Do not become a modern policy pundit."
         ),
         "caesar": (
-            "Caesar-specific short answer rule: Caesar must speak of Caesar "
-            "in the third person. Never use 'I', 'me', 'my', or 'mine' for "
-            "self-reference. Make one clear strategic judgment about the "
-            "modern question, then clothe it in the language of command: "
-            "legions, standards, provinces, treasuries, allies, rivals, roads, "
-            "supply lines, discipline, terms, honor, and order. The diction "
-            "should be refined and old, like a patrician general giving "
-            "counsel before the Senate, but the meaning must remain clear."
+            "Caesar-specific rule: Caesar must speak of Caesar in the third "
+            "person. Never use 'I', 'me', 'my', or 'mine' for self-reference. "
+            "Character is paramount for Caesar: let him take the Senate floor "
+            "when the argument demands it. His answer may be more ceremonial, "
+            "elevated, and expansive than the other experts, provided the "
+            "modern point remains clear. Make a strategic judgment, then "
+            "clothe it in the language of command: legions, standards, "
+            "provinces, treasuries, allies, rivals, roads, supply lines, "
+            "discipline, terms, honor, and order. Use refined patrician "
+            "diction, antique turns such as 'thus,' 'hence,' and 'lest,' and "
+            "one or two Roman campaign or senate analogies when useful. "
+            "The voice should feel like an old commander addressing the "
+            "Senate, not a modern analyst in costume."
         ),
         "thiel": (
             "Thiel-specific short answer rule: preserve the contrarian "
