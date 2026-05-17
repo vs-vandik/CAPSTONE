@@ -52,20 +52,16 @@ function toggleMic() {
 // something to push against.
 const suggestions: { label: string; text: string }[] = [
   {
-    label: 'Climate risk in IG credit',
-    text: 'Climate transition risk is mispriced across investment-grade credit, and current portfolios systematically underweight it.',
+    label: 'Generational transition',
+    text: "Does NTP's business model remain economically viable across generational transition? Examine what if the next generation values digital experience and cost efficiency more than a stable and long-term relationship.",
   },
   {
-    label: 'Private credit & systemic risk',
-    text: 'Private credit growth since 2020 has shifted systemic risk off bank balance sheets without reducing it.',
+    label: 'AI governance',
+    text: 'What happens when AI becomes embedded in investment decisions faster than governance frameworks mature? Examine how can NTP maintain fiduciary defensibility in an environment where decision support becomes probabilistic and opaque.',
   },
   {
-    label: 'AI gains and labor',
-    text: 'AI-driven productivity gains will accrue to capital holders, not labor, deepening the retirement-savings gap.',
-  },
-  {
-    label: 'Geopolitical fragmentation & cost of capital',
-    text: 'Geopolitical fragmentation has permanently raised the cost of capital for multinational operations, and DCF models built on pre-2020 assumptions overstate fair value.',
+    label: 'Geopolitical fragmentation',
+    text: "What is NTP's operating model if the next five years are characterized by persistent geopolitical fragmentation rather than globalization? Discuss what would happen if the architecture of international finance becomes structurally less integrated.",
   },
 ]
 
@@ -132,9 +128,6 @@ async function submit() {
           placeholder="What shall we call you?"
           @keydown.enter.exact.prevent="submit"
         />
-        <p class="text-xs text-ink-faint mt-2">
-          The experts may address you by this name during the discourse.
-        </p>
       </div>
 
       <label
@@ -159,7 +152,7 @@ async function submit() {
           rows="3"
           class="input font-serif text-lg leading-snug"
           :class="{ 'pr-12': speech.supported.value }"
-          placeholder="e.g. Climate transition risk is mispriced across investment-grade credit."
+          placeholder=""
           @keydown.enter.exact.prevent="submit"
           @keydown.meta.enter.prevent="submit"
           @keydown.ctrl.enter.prevent="submit"

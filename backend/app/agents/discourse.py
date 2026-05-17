@@ -206,9 +206,22 @@ def _build_system_prompt(
         (
             f"The human participant is {user_name}. They proposed the topic "
             "and are the third participant in this exchange, alongside the "
-            "two experts. Keep their concern in mind. When it feels natural, "
-            f"refer to {user_name} by name, but do not force the name into "
-            "every answer."
+            "two experts. Keep their concern in mind, but do not bend your "
+            "philosophy toward them just because they asked the question. "
+            f"When it feels natural, refer to {user_name} by name, but do "
+            "not force the name into every answer."
+        ),
+        "",
+        (
+            "Dialectical stance: you are not here to find polite consensus. "
+            "Stand inside your own philosophy and defend it hard. Treat the "
+            "previous speaker's answer, and the user's framing when relevant, "
+            "as claims to be tested. Identify at least one weak premise, "
+            "false comfort, contradiction, category error, naive assumption, "
+            "or hidden incentive in what has just been said. You may grant a "
+            "small point, but agreement must be tactical and subordinate to "
+            "your challenge. Do not harmonize the debate into a balanced "
+            "middle position unless that is genuinely your persona's view."
         ),
     ])
 
@@ -223,9 +236,10 @@ def _build_system_prompt(
             latest_user_input,
             (
                 "Treat this as live participant input, not background noise. "
-                "Use it to shape the answer when relevant: answer the concern, "
-                "adopt its framing, pressure-test it, or turn it into a "
-                "concrete example. Do this naturally inside your argument; "
+                "Answer it when relevant, but do not automatically accept its "
+                "framing. If the user's question contains a weak assumption, "
+                "soft premise, or wishful conclusion, challenge it directly "
+                "from your worldview. Do this naturally inside your argument; "
                 "do not announce that you are following an instruction."
             ),
         ])
@@ -257,13 +271,15 @@ def _build_system_prompt(
             f"Immediate dialogue target: {previous_speaker} just said:",
             previous_content,
             (
-                "Dialogue requirement: make the answer depend on this claim, "
-                "but embed the reference naturally somewhere in your own "
-                "argument. It can appear as a closing pressure point, a "
-                "counterexample, a shared premise, a reframing, or a phrase "
-                "borrowed from their concern. Do not always open by naming "
-                "the speaker. Avoid the repetitive pattern 'X is right, but' "
-                "or 'I agree with X, but.'"
+                "Dialogue requirement: take one live claim from this answer "
+                "and push against it. Expose the premise it relies on, the "
+                "incentive it ignores, the contradiction it hides, or the "
+                "worldview it smuggles in. Embed the reference naturally "
+                "somewhere in your own argument. It can appear as a closing "
+                "pressure point, a counterexample, a reversal, a sharper "
+                "definition, or a phrase borrowed from their concern. Do not "
+                "always open by naming the speaker. Avoid the repetitive "
+                "pattern 'X is right, but' or 'I agree with X, but.'"
             ),
         ])
 
@@ -277,13 +293,19 @@ def _build_system_prompt(
         "relevant, use it deeply rather than name-dropping several weak ones.",
         "",
         "Speak as yourself in 2-3 compact paragraphs, roughly 120-180 words "
-        "total. Let the previous expert's point influence the answer when "
-        "there is one, but do not force the reference into the first sentence. "
+        "total. Let the previous expert's point provoke the answer when "
+        "there is one; do not merely add your own adjacent opinion. Attack "
+        "one important assumption or failure mode, but do not force the "
+        "reference into the first sentence. "
+        "Do not use the polished explanatory scaffold 'That is why..., "
+        "not because..., but because...' or close variants such as 'This is "
+        "not because X, but because Y.' Make contrasts more direct and "
+        "less formulaic. "
         "Keep the persona's distinctive tone, vocabulary, analogies, and "
         "habitual obsessions intact. Compress by choosing one main argument "
-        "and, if needed, one concrete support or clash; do not stack several "
-        "arguments or extend the explanation. Do not break character. Do not "
-        "announce yourself ('As Warren Buffett, I...'); just speak.",
+        "and one concrete clash; do not stack several arguments or extend "
+        "the explanation. Do not break character. Do not announce yourself "
+        "('As Warren Buffett, I...'); just speak.",
     ])
 
     return "\n".join(parts)

@@ -27,11 +27,11 @@ import DiscourseView from '@/views/DiscourseView.vue'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'home', component: LandingView },
-    { path: '/about', name: 'about', component: AboutView },
-    { path: '/experts', name: 'experts', component: PersonasView },
-    { path: '/topic', name: 'topic', component: TopicView },
-    { path: '/discourse', name: 'discourse', component: DiscourseView },
+    { path: '/', name: 'home', component: LandingView, meta: { flowStep: 0 } },
+    { path: '/about', name: 'about', component: AboutView, meta: { flowStep: 0 } },
+    { path: '/experts', name: 'experts', component: PersonasView, meta: { flowStep: 1 } },
+    { path: '/topic', name: 'topic', component: TopicView, meta: { flowStep: 2 } },
+    { path: '/discourse', name: 'discourse', component: DiscourseView, meta: { flowStep: 3 } },
   ],
   scrollBehavior() {
     return { top: 0 }
@@ -40,7 +40,11 @@ const router = createRouter({
 
 // Guard the deeper flow steps so users can't deep-link past selections.
 // Pinia is initialized before the router is used (see main.ts).
-router.beforeEach((to) => {
+router.beforeEach((to, from) => {
+  const toStep = Number(to.meta.flowStep ?? 0)
+  const fromStep = Number(from.meta.flowStep ?? 0)
+  to.meta.transitionName = toStep < fromStep ? 'route-back' : 'route-forward'
+
   const store = useDiscourseStore()
   if (to.name === 'topic' && store.selectedPersonaIds.length !== 2) {
     return { name: 'experts' }

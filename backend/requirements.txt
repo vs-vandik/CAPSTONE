@@ -35,3 +35,4 @@ httpx==0.26.0
 # Ingestion (HTML scraping for expert corpora; not used at request time)
 beautifulsoup4==4.12.3
 brotli==1.1.0
+pypdf==4.3.1

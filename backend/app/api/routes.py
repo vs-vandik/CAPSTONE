@@ -261,6 +261,13 @@ def next_turn(session_id: str):
     except RuntimeError as e:
         # Missing API key surfaces here.
         raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        if e.__class__.__module__.startswith("openai"):
+            raise HTTPException(
+                status_code=503,
+                detail=f"Model provider error: {e}",
+            )
+        raise
 
 
 @router.get("/discourse/{session_id}")

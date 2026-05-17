@@ -58,8 +58,6 @@ class Plato:
 
 We have before us {speaker_names} — each a thinker of distinction, each with their own way of seeing the world.
 
-You are not merely an observer here; your question gives this inquiry its shape.
-
 Let us examine this matter together, as Socrates would have wished. 
 Each of you, speak your truth. And let us test these truths through questioning.
 

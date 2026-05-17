@@ -1,8 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from '@/components/TopBar.vue'
 
 const route = useRoute()
+
+const routeTransitionName = computed(() =>
+  route.meta.transitionName === 'route-back' ? 'route-back' : 'route-forward',
+)
 </script>
 
 <template>
@@ -15,19 +20,23 @@ const route = useRoute()
   -->
   <div class="min-h-[100dvh] flex flex-col bg-bg">
     <TopBar />
-    <main class="flex-1 w-full flex flex-col">
+    <main class="flex-1 w-full flex flex-col route-stage">
       <!--
-        Plain <router-view> on purpose. Previously this was wrapped in a
-        <transition name="fade" mode="out-in"> with `v-slot="{ Component }"`,
-        which produced an intermittent "blank page until refresh" bug:
-        on a route change the leave hook would fire but the new
-        component would mount with `opacity: 0` and occasionally never
-        receive the `enter-to` class, leaving the page invisibly
-        rendered until the user refreshed. A global fade is not worth a
-        broken navigation flow; route-level transitions can be re-added
-        per-component later if we want them.
+        Route components are eagerly imported in router/index.ts, so this
+        transition does not introduce an async component boundary. Only
+        the routed page content moves; the top bar and footer remain outside
+        the animation.
       -->
-      <router-view />
+      <router-view v-slot="{ Component, route: currentRoute }">
+        <transition :name="routeTransitionName">
+          <div
+            :key="currentRoute.fullPath"
+            class="route-page"
+          >
+            <component :is="Component" />
+          </div>
+        </transition>
+      </router-view>
     </main>
     <!--
       The site-wide footer is hidden on routes that ship their own
@@ -36,15 +45,63 @@ const route = useRoute()
       fine-print band beneath the heads.
     -->
     <footer
-      v-if="route.name !== 'home' && route.name !== 'experts' && route.name !== 'about'"
+      v-if="route.name === 'topic'"
       class="border-t border-border mt-24"
     >
       <div
-        class="max-w-page mx-auto px-6 py-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-ink-faint"
+        class="max-w-page mx-auto px-6 py-8 flex items-center justify-center"
       >
-        <span>plato — structured dialogue for asset managers.</span>
-        <span>Output is a record of debate. Not investment advice.</span>
+        <img
+          src="/footer_logo_black.svg"
+          alt="plato"
+          class="h-6 w-auto block"
+          draggable="false"
+        />
       </div>
     </footer>
   </div>
 </template>
+
+<style scoped>
+.route-stage {
+  position: relative;
+  overflow: hidden;
+}
+.route-page {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.route-forward-enter-active,
+.route-forward-leave-active,
+.route-back-enter-active,
+.route-back-leave-active {
+  transition: transform 720ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+.route-forward-leave-active,
+.route-back-leave-active {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.route-forward-enter-from {
+  transform: translateX(100%);
+}
+.route-forward-leave-to {
+  transform: translateX(-100%);
+}
+.route-back-enter-from {
+  transform: translateX(-100%);
+}
+.route-back-leave-to {
+  transform: translateX(100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-forward-enter-active,
+  .route-forward-leave-active,
+  .route-back-enter-active,
+  .route-back-leave-active {
+    transition: none;
+  }
+}
+</style>

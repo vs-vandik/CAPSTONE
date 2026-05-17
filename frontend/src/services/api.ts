@@ -10,7 +10,11 @@ import type {
   Turn,
 } from '@/types'
 
-const BASE = import.meta.env.VITE_API_BASE ?? '/api/v1'
+const BASE =
+  import.meta.env.VITE_API_BASE ??
+  (import.meta.env.PROD
+    ? 'https://plato-capstone.fly.dev/api/v1'
+    : '/api/v1')
 
 async function request<T>(
   path: string,

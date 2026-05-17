@@ -24,6 +24,9 @@ podcast transcripts that quote him verbatim. We assemble:
    2016) — a monologue with no speaker prefix; ingested with a
    different parser that treats the whole article as Thiel.
 8. Wikipedia biography for context.
+9. Optional local PDF: "The Straussian Moment" (2007), expected at
+   data/thiel/raw/2007-thiel-the-straussian-moment.pdf. Skipped if the
+   PDF is not present because raw PDFs are gitignored.
 
 Run from `backend/`:
 
@@ -144,6 +147,17 @@ SINGJUPOST_MONOLOGUE_SOURCES: List[Tuple[str, str, str]] = [
     ),
 ]
 
+# Optional local PDFs. Raw PDFs are gitignored, so these are skipped unless the
+# file exists under data/thiel/raw on the machine running ingestion.
+LOCAL_PDF_SOURCES: List[Tuple[str, str, str, int]] = [
+    (
+        "2007-thiel-the-straussian-moment.pdf",
+        "straussian-moment-2007",
+        'Peter Thiel: "The Straussian Moment" (2007)',
+        2007,
+    ),
+]
+
 WIKIQUOTE_SKIP_SECTIONS = {
     "Quotes about Thiel",
     "Quotes about Peter Thiel",
@@ -252,7 +266,22 @@ def main() -> int:
                 sources_failed.append(slug)
             time.sleep(REQUEST_DELAY)
 
-        # ----- 3. Speaker-attributed transcripts -----
+        # ----- 3. Optional local PDFs -----
+        for filename, slug, title, year in LOCAL_PDF_SOURCES:
+            n = _ingest_local_pdf_essay(
+                filename=filename,
+                slug=slug,
+                title=title,
+                year=year,
+                f_out=f_out,
+                raw_dir=raw_dir,
+                seen=seen_paragraphs,
+            )
+            if n > 0:
+                chunks_written += n
+                sources_ok += 1
+
+        # ----- 4. Speaker-attributed transcripts -----
         for url, slug, title in SINGJUPOST_QA_SOURCES:
             n = _ingest_qa_transcript(
                 client=client,
@@ -272,7 +301,7 @@ def main() -> int:
                 pass
             time.sleep(REQUEST_DELAY)
 
-        # ----- 4. Monologue transcripts (Hamilton commencement etc.) -----
+        # ----- 5. Monologue transcripts (Hamilton commencement etc.) -----
         for url, slug, title in SINGJUPOST_MONOLOGUE_SOURCES:
             n = _ingest_monologue_transcript(
                 client=client,
@@ -290,7 +319,7 @@ def main() -> int:
                 sources_failed.append(slug)
             time.sleep(REQUEST_DELAY)
 
-        # ----- 5. Wikipedia biography -----
+        # ----- 6. Wikipedia biography -----
         n = _ingest_wikipedia(
             client=client,
             url=WIKIPEDIA_URL,
@@ -485,6 +514,157 @@ def _ingest_essay(
 
     print(f"  [{slug}] {len(deduped):4d} paragraphs -> {n} chunks")
     return n
+
+
+# ==================
+# Local PDF essays
+# ==================
+
+
+def _ingest_local_pdf_essay(
+    *,
+    filename: str,
+    slug: str,
+    title: str,
+    year: int,
+    f_out,
+    raw_dir: Path,
+    seen: set[str],
+) -> int:
+    """Extract a local PDF essay into paragraph chunks.
+
+    The source PDF is intentionally optional because raw PDFs are not
+    committed. When present, the extracted text is included in chunks.jsonl
+    and therefore in the rebuilt embedding index.
+    """
+    pdf_path = raw_dir / filename
+    if not pdf_path.is_file():
+        print(f"  [{slug}] missing {filename}, skipping optional local PDF")
+        return 0
+
+    try:
+        paragraphs = _extract_pdf_paragraphs(pdf_path)
+    except Exception as e:
+        print(f"  [{slug}] PDF extraction failed: {e}", file=sys.stderr)
+        return 0
+
+    deduped: List[str] = []
+    for p in paragraphs:
+        if p in seen:
+            continue
+        seen.add(p)
+        deduped.append(p)
+
+    if len(deduped) < 5:
+        print(f"  [{slug}] only {len(deduped)} paragraphs, skipping")
+        return 0
+
+    (raw_dir / f"{slug}.txt").write_text(
+        "\n\n".join(deduped), encoding="utf-8"
+    )
+
+    n = 0
+    for i, chunk in enumerate(chunk_paragraphs(deduped)):
+        record: Dict = {
+            "id": f"thiel-{slug}-{i:03d}",
+            "expert_id": "thiel",
+            "kind": "essay",
+            "year": year,
+            "source_url": f"local:{filename}",
+            "source_title": title,
+            "text": chunk,
+        }
+        f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+        n += 1
+
+    print(f"  [{slug}] {len(deduped):4d} paragraphs from PDF -> {n} chunks")
+    return n
+
+
+def _extract_pdf_paragraphs(pdf_path: Path) -> List[str]:
+    """Extract body paragraphs from the Straussian Moment PDF.
+
+    The PDF has page headers/footers and an opening Tennyson epigraph.
+    We start at Thiel's first body paragraph and stop before the notes.
+    Layout extraction preserves paragraph indentation well enough to
+    reconstruct paragraphs without splitting every line.
+    """
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(pdf_path))
+    lines: List[str] = []
+    for page in reader.pages:
+        text = page.extract_text(extraction_mode="layout") or ""
+        lines.extend(text.splitlines())
+
+    paragraphs: List[str] = []
+    current: List[str] = []
+    started = False
+    previous_hyphenated = False
+
+    for line in lines:
+        raw = line.rstrip()
+        stripped = raw.strip()
+        if not stripped:
+            continue
+
+        normalized = _normalize(stripped)
+        if not started:
+            if "he twenty-first century started" not in normalized:
+                continue
+            started = True
+            normalized = normalized.replace(
+                "he twenty-first century started",
+                "The twenty-first century started",
+            )
+            raw = f"     {normalized}"
+
+        if normalized == "NOTES":
+            break
+        if _looks_like_pdf_header_or_footer(normalized):
+            if "The Straussian Moment" in normalized and current:
+                paragraphs.append(_normalize(" ".join(current)))
+                current = []
+                previous_hyphenated = False
+            continue
+        if normalized.isupper() and len(normalized) < 90:
+            if current:
+                paragraphs.append(_normalize(" ".join(current)))
+                current = []
+                previous_hyphenated = False
+            continue
+
+        indent = len(raw) - len(raw.lstrip())
+        starts_paragraph = bool(current) and 3 <= indent <= 8 and not previous_hyphenated
+        if starts_paragraph:
+            paragraphs.append(_normalize(" ".join(current)))
+            current = []
+
+        if current and previous_hyphenated:
+            current[-1] = current[-1][:-1] + normalized
+        else:
+            current.append(normalized)
+
+        previous_hyphenated = normalized.endswith("-")
+
+    if current:
+        paragraphs.append(_normalize(" ".join(current)))
+
+    return [
+        p
+        for p in paragraphs
+        if len(p) >= MIN_PARAGRAPH_CHARS
+        and not _looks_like_boilerplate(p)
+        and not _looks_like_table(p)
+    ]
+
+
+def _looks_like_pdf_header_or_footer(text: str) -> bool:
+    return bool(
+        re.match(r"^\d+\s+Peter Thiel$", text)
+        or re.match(r"^The Straussian Moment\s+(?:\.\s+)?\d+$", text)
+        or re.match(r"^\d{3}$", text)
+    )
 
 
 # ==================
