@@ -9,6 +9,7 @@ const props = defineProps<{
 }>()
 
 const isPlato = computed(() => props.turn.role === 'plato')
+const isUser = computed(() => props.turn.role === 'user')
 const html = computed(() => renderParagraphs(props.turn.content))
 
 const typeLabel = computed(() => {
@@ -24,7 +25,9 @@ const typeLabel = computed(() => {
   }
 })
 
-const accentColor = computed(() => props.persona?.color ?? '#1F3A5F')
+const accentColor = computed(() =>
+  isUser.value ? '#6F5A3A' : props.persona?.color ?? '#1F3A5F',
+)
 </script>
 
 <template>
@@ -42,6 +45,35 @@ const accentColor = computed(() => props.persona?.color ?? '#1F3A5F')
       class="prose-plato text-ink-muted font-serif italic leading-relaxed"
       v-html="html"
     />
+  </article>
+
+  <article
+    v-else-if="isUser"
+    class="my-8 ml-auto max-w-prose"
+  >
+    <header class="flex items-center justify-end gap-3 mb-3">
+      <div class="min-w-0 text-right">
+        <p class="text-sm font-medium text-ink">{{ turn.speaker }}</p>
+        <p class="text-xs text-ink-faint">Participant</p>
+      </div>
+      <span
+        class="w-8 h-8 inline-flex items-center justify-center rounded-sm font-serif text-sm flex-shrink-0"
+        :style="{
+          backgroundColor: accentColor + '18',
+          color: accentColor,
+          border: `1px solid ${accentColor}40`,
+        }"
+        aria-hidden="true"
+      >
+        {{ turn.speaker.charAt(0).toUpperCase() }}
+      </span>
+    </header>
+    <div
+      class="prose-turn text-ink leading-relaxed pr-4 border-r-2"
+      :style="{ borderRightColor: accentColor + '60' }"
+    >
+      <div v-html="html" />
+    </div>
   </article>
 
   <article

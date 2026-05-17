@@ -12,18 +12,18 @@ Design:
 - Experts speak round-robin in the order they appear in `persona_ids`.
 - News context is fetched once on first expert turn, cached on the
   session, and injected into every expert's system prompt thereafter.
-- Knowledge retrieval is delegated to `_retrieve_quotes` which is a
-  placeholder until `app.knowledge.store` exists; for now it returns the
-  persona's `seed_quotes`. The signature won't change when we wire
-  Chroma in.
+- Knowledge retrieval is delegated to `_retrieve_evidence`. It retrieves
+  fresh persona-corpus chunks per expert turn from the topic plus recent
+  debate context, then injects them into the private system prompt only.
 
 A session's `history` is a list of `Turn` dicts:
 
-    {"role": "plato"|"expert", "speaker": str, "type": str, "content": str}
+    {"role": "plato"|"expert"|"user", "speaker": str, "type": str, "content": str}
 
-`speaker` is the persona display name for experts, "Plato" for plato.
+`speaker` is the persona display name for experts, "Plato" for plato,
+and the participant's chosen name for user turns.
 `type` mirrors the existing Plato dict types ("opening", "transition",
-"closing", "expert").
+"closing", "expert", "user_input").
 """
 
 from typing import Dict, List, Optional
@@ -38,6 +38,12 @@ from app.knowledge import store as knowledge_store
 # How many expert turns we want before Plato closes the session. Stored on
 # the session as `max_turns` at /discourse/start time.
 DEFAULT_MAX_TURNS = 6
+
+# Keep expert turns compact while leaving enough room for persona voice, humor,
+# and paragraph breaks. Plato and Aporia keep using the global LLM setting.
+EXPERT_TURN_MAX_TOKENS = 340
+EVIDENCE_PER_TURN = 5
+RETRIEVAL_CONTEXT_TURNS = 3
 
 
 # ==================
@@ -61,27 +67,28 @@ def next_turn(session: Dict) -> Dict:
     history: List[Dict] = session.setdefault("history", [])
     persona_ids: List[str] = session["persona_ids"]
     topic: str = session["topic"]
+    user_name: str = session.get("user_name") or "the user"
     max_turns: int = session.get("max_turns", DEFAULT_MAX_TURNS)
 
     expert_turns_so_far = sum(1 for t in history if t.get("role") == "expert")
+    last = history[-1] if history else None
 
     # --- 1. Opening: very first turn of the session ---
     if not history:
         speakers = [get_persona(pid).name for pid in persona_ids]
-        turn = Plato.opening(topic, speakers)
+        turn = Plato.opening(topic, speakers, user_name=user_name)
         turn["speaker"] = "Plato"
         return _append(session, turn, done=False)
 
     # --- 2. Closing: we've hit the expert turn budget ---
-    if expert_turns_so_far >= max_turns and history[-1].get("role") == "expert":
+    if expert_turns_so_far >= max_turns and last.get("role") in {"expert", "user"}:
         turn = Plato.closing(topic, history)
         turn["speaker"] = "Plato"
         session["status"] = "done"
         return _append(session, turn, done=True)
 
-    # --- 3. Plato transition: between expert turns, after at least one expert has spoken ---
-    last = history[-1]
-    if last.get("role") == "expert" and expert_turns_so_far < max_turns:
+    # --- 3. Plato transition: after an expert or user turn, before the next expert ---
+    if last.get("role") in {"expert", "user"} and expert_turns_so_far < max_turns:
         next_persona = _next_expert(persona_ids, history)
         # Build the context ourselves rather than calling plato.create_context,
         # which indexes into the speakers list using turn_number and breaks
@@ -93,7 +100,10 @@ def next_turn(session: Dict) -> Dict:
             current_speaker=next_persona.name,
             previous_speaker=last.get("speaker"),
         )
-        turn = Plato.transition(ctx, previous_content=last.get("content", ""))
+        if last.get("role") == "user":
+            turn = Plato.user_transition(ctx, previous_content=last.get("content", ""))
+        else:
+            turn = Plato.transition(ctx, previous_content=last.get("content", ""))
         turn["speaker"] = "Plato"
         return _append(session, turn, done=False)
 
@@ -136,24 +146,37 @@ def _next_expert(persona_ids: List[str], history: List[Dict]) -> Persona:
 
 def _generate_expert_turn(persona: Persona, session: Dict) -> str:
     """Build the system prompt + chat history and call the LLM."""
-    quotes = _retrieve_quotes(persona, session)
+    evidence = _retrieve_evidence(persona, session)
     news_snippets = _get_or_fetch_news(session)
+    previous_expert = _previous_expert_turn(session["history"], persona)
+    latest_user_turn = _latest_user_turn(session["history"])
 
-    system = _build_system_prompt(persona, session["topic"], quotes, news_snippets)
+    system = _build_system_prompt(
+        persona,
+        session["topic"],
+        evidence,
+        news_snippets,
+        previous_expert,
+        session.get("user_name") or "the user",
+        latest_user_turn,
+    )
     messages = _history_as_messages(session["history"], speaker_name=persona.name)
 
-    return llm.generate(system, messages)
+    return llm.generate(system, messages, max_tokens=EXPERT_TURN_MAX_TOKENS)
 
 
 def _build_system_prompt(
     persona: Persona,
     topic: str,
-    quotes: List[str],
+    evidence: List[knowledge_store.RetrievedChunk],
     news_snippets: List[Dict],
+    previous_expert: Optional[Dict] = None,
+    user_name: str = "the user",
+    latest_user_turn: Optional[Dict] = None,
 ) -> str:
     """Assemble the persona system prompt.
 
-    Order matters: identity, voice, refusals, then context (quotes + news),
+    Order matters: identity, voice, refusals, then context (evidence + news),
     then the task. Putting the task last gives the model the strongest
     recency bias toward what we want it to actually do.
     """
@@ -164,36 +187,213 @@ def _build_system_prompt(
         f"Voice and style: {persona.voice}",
     ]
 
+    persona_guidance = _persona_turn_guidance(persona)
+    if persona_guidance:
+        parts.extend(["", persona_guidance])
+
+    spoken_guidance = _spoken_turn_guidance(persona)
+    if spoken_guidance:
+        parts.extend(["", spoken_guidance])
+
     if persona.refuses:
         parts.append("")
         parts.append("You will not:")
         for r in persona.refuses:
             parts.append(f"- {r}")
 
-    if quotes:
+    parts.extend([
+        "",
+        (
+            f"The human participant is {user_name}. They proposed the topic "
+            "and are the third participant in this exchange, alongside the "
+            "two experts. Keep their concern in mind. When it feels natural, "
+            f"refer to {user_name} by name, but do not force the name into "
+            "every answer."
+        ),
+    ])
+
+    if latest_user_turn:
+        latest_user_input = _compact_text(
+            latest_user_turn.get("content", ""),
+            max_chars=700,
+        )
+        parts.extend([
+            "",
+            f"Latest input from {user_name}:",
+            latest_user_input,
+            (
+                "Treat this as live participant input, not background noise. "
+                "Use it to shape the answer when relevant: answer the concern, "
+                "adopt its framing, pressure-test it, or turn it into a "
+                "concrete example. Do this naturally inside your argument; "
+                "do not announce that you are following an instruction."
+            ),
+        ])
+
+    if evidence:
         parts.append("")
         parts.append(
-            "Things you have actually said or written (use to ground your "
-            "voice — paraphrase, do not quote verbatim unless natural):"
+            "Private grounding from your own corpus. Use this silently to "
+            "shape substance and voice. Paraphrase naturally; do not mention "
+            "evidence, sources, chunks, labels, or retrieval. Do not cite IDs "
+            "like [E1] in the answer."
         )
-        for q in quotes:
-            parts.append(f"- {q}")
+        for i, chunk in enumerate(evidence, start=1):
+            parts.append(f"[E{i}] {chunk.text}")
 
     news_block = news.format_for_prompt(news_snippets)
     if news_block:
         parts.append("")
         parts.append(news_block)
 
+    if previous_expert:
+        previous_speaker = previous_expert.get("speaker", "the previous expert")
+        previous_content = _compact_text(
+            previous_expert.get("content", ""),
+            max_chars=700,
+        )
+        parts.extend([
+            "",
+            f"Immediate dialogue target: {previous_speaker} just said:",
+            previous_content,
+            (
+                "Dialogue requirement: make the answer depend on this claim, "
+                "but embed the reference naturally somewhere in your own "
+                "argument. It can appear as a closing pressure point, a "
+                "counterexample, a shared premise, a reframing, or a phrase "
+                "borrowed from their concern. Do not always open by naming "
+                "the speaker. Avoid the repetitive pattern 'X is right, but' "
+                "or 'I agree with X, but.'"
+            ),
+        ])
+
     parts.extend([
         "",
         f"Topic of debate: {topic}",
         "",
-        "Speak as yourself. 2-4 short paragraphs. Engage with what the "
-        "previous speaker said when there is one. Do not break character. "
-        "Do not announce yourself ('As Warren Buffett, I...'); just speak.",
+        "Grounding requirement: weave in at least 2 private grounding items "
+        "when available. Integrate them as if they are your own memory and "
+        "habit of thought, not as quoted evidence. If only one item is "
+        "relevant, use it deeply rather than name-dropping several weak ones.",
+        "",
+        "Speak as yourself in 2-3 compact paragraphs, roughly 120-180 words "
+        "total. Let the previous expert's point influence the answer when "
+        "there is one, but do not force the reference into the first sentence. "
+        "Keep the persona's distinctive tone, vocabulary, analogies, and "
+        "habitual obsessions intact. Compress by choosing one main argument "
+        "and, if needed, one concrete support or clash; do not stack several "
+        "arguments or extend the explanation. Do not break character. Do not "
+        "announce yourself ('As Warren Buffett, I...'); just speak.",
     ])
 
     return "\n".join(parts)
+
+
+def _previous_expert_turn(history: List[Dict], persona: Persona) -> Optional[Dict]:
+    """Return the most recent expert turn by another persona, if any."""
+    for turn in reversed(history):
+        if turn.get("role") != "expert":
+            continue
+        if turn.get("persona_id") == persona.id or turn.get("speaker") == persona.name:
+            continue
+        return turn
+    return None
+
+
+def _latest_user_turn(history: List[Dict]) -> Optional[Dict]:
+    """Return the latest human participant intervention, if any."""
+    for turn in reversed(history):
+        if turn.get("role") == "user":
+            return turn
+    return None
+
+
+def _persona_turn_guidance(persona: Persona) -> str:
+    """Optional turn-level guidance for personas that flatten when compressed."""
+    guidance = {
+        "buffett": (
+            "Buffett-specific short answer rule: preserve the homespun "
+            "clarity. Use one concrete analogy from ordinary business or "
+            "life, then tie it back to price versus value, margin of safety, "
+            "or durable earning power. Sound like a shareholder letter, not "
+            "an analyst note. A small self-deprecating aside is better than "
+            "extra theory."
+        ),
+        "fink": (
+            "Fink-specific short answer rule: preserve the institutional "
+            "frame. State the issue as a fiduciary tradeoff for long-term "
+            "clients, then connect it to capital markets, retirement, "
+            "demographics, energy transition, or resilience. Be measured and "
+            "boardroom-clear. The signature move is acknowledging complexity "
+            "while still naming where capital should flow."
+        ),
+        "musk": (
+            "Musk-specific short answer rule: write like a thread or a burst "
+            "of posts, not an essay. Use short, spoken sentences and fragments "
+            "with simple words. It is okay to be a little messy: quick pivot, "
+            "deadpan jab, then technical point. Include one internet-native "
+            "aside when natural, like 'lol', 'not great', 'very dumb', 'wild', "
+            "or 'big if true'. Do not sound polished, balanced, corporate, or "
+            "LLM-clean. No consultant transitions. No grand speeches."
+        ),
+        "marx": (
+            "Marx-specific short answer rule: preserve the dialectic. Name "
+            "the capitalist category being treated as natural, expose the "
+            "contradiction inside it, then connect it to class power or labor "
+            "power. One caustic phrase aimed at apologists of the existing "
+            "order is enough. Do not become a modern policy pundit."
+        ),
+        "caesar": (
+            "Caesar-specific short answer rule: Caesar must speak of Caesar "
+            "in the third person. Never use 'I', 'me', 'my', or 'mine' for "
+            "self-reference. Make one clear strategic judgment about the "
+            "modern question, then clothe it in the language of command: "
+            "legions, standards, provinces, treasuries, allies, rivals, roads, "
+            "supply lines, discipline, terms, honor, and order. The diction "
+            "should be refined and old, like a patrician general giving "
+            "counsel before the Senate, but the meaning must remain clear."
+        ),
+        "thiel": (
+            "Thiel-specific short answer rule: preserve the contrarian "
+            "inversion. Start from the consensus view, reverse it, then tie "
+            "the reversal to monopoly, stagnation, mimetic competition, "
+            "definite optimism, or the theological shadow beneath politics. "
+            "Keep the prose slow, dry, and cutting, not inspirational."
+        ),
+    }
+    return guidance.get(persona.id, "")
+
+
+def _spoken_turn_guidance(persona: Persona) -> str:
+    """Shared anti-consultant style rule, except for Fink's institutional voice."""
+    if persona.id == "fink":
+        return ""
+    if persona.id == "caesar":
+        return (
+            "Caesar style rule: avoid consultant language, modern slang, "
+            "internet phrasing, and contractions. Do not sound like an analyst "
+            "memo or generic LLM. The answer should feel spoken by an ancient "
+            "commander of high birth: formal, spare, grave, and authoritative. "
+            "Use elevated old diction, but keep sentences intelligible. Let "
+            "the oldness come from word choice, third-person self-reference, "
+            "and military-statecraft imagery, not from obscurity."
+        )
+    return (
+        "Spoken-answer rule for natural voice: do not sound like a "
+        "consultant, analyst memo, press release, or generic LLM. Write as if "
+        "this person is responding aloud in a live discussion. Use plain "
+        "verbs, contractions when natural, uneven sentence lengths, occasional "
+        "fragments, and one vivid concrete image. Let a thought arrive with a "
+        "little roughness: a sharp aside, a small correction, or a sentence "
+        "that lands hard rather than perfectly balanced. Avoid polished "
+        "signposting and AI-like glue: 'in today's complex landscape,' 'it is "
+        "important to note,' 'strategic imperative,' 'unlock value,' 'robust "
+        "framework,' 'key stakeholders,' 'multifaceted,' 'moreover,' "
+        "'furthermore,' and 'in conclusion.' Do not organize the answer as a "
+        "mini essay with three balanced points. Do not overdo fake casualness; "
+        "one human texture is enough. The answer should feel said by this "
+        "person in a room, not drafted by a communications team."
+    )
 
 
 def _history_as_messages(history: List[Dict], *, speaker_name: str) -> List[Dict]:
@@ -235,32 +435,68 @@ def _get_or_fetch_news(session: Dict) -> List[Dict]:
     return snippets
 
 
-def _retrieve_quotes(persona: Persona, session: Dict) -> List[str]:
-    """Retrieve persona-relevant quotes for the session's topic.
+def _retrieve_evidence(
+    persona: Persona,
+    session: Dict,
+) -> List[knowledge_store.RetrievedChunk]:
+    """Retrieve private grounding for the next expert turn.
 
-    Cached on the session under `quotes_by_persona` so we only hit the
-    embedding API once per (session, persona). The topic does not change
-    mid-debate, so re-querying every turn would just burn tokens.
+    Retrieval is intentionally per-turn rather than per-session. The query
+    includes the session topic plus the latest dialogue context so each expert
+    can answer the actual clash in front of them, not just the broad topic.
 
-    If the session sets `force_seed_quotes=True`, the retriever returns
-    the persona's seed_quotes regardless of whether a built corpus index
-    exists. Used by smoke tests to A/B compare retrieval-on vs -off.
+    The returned chunks are used only inside the system prompt. They are not
+    attached to the turn returned to the frontend.
     """
-    cache: Dict[str, List[str]] = session.setdefault("quotes_by_persona", {})
-    if persona.id in cache:
-        return cache[persona.id]
-
     retriever = knowledge_store.get_retriever(
         persona,
         force_seed_quotes=session.get("force_seed_quotes", False),
     )
-    chunks = retriever.query(session["topic"], k=4)
-    quotes = [c.text for c in chunks]
+    query = _build_evidence_query(persona, session)
+    chunks = retriever.query(query, k=EVIDENCE_PER_TURN)
 
-    # If retrieval came back empty (e.g. embedding API hiccup or empty
-    # corpus), fall back to seed_quotes so the prompt is never quote-less.
-    if not quotes:
-        quotes = list(persona.seed_quotes)
+    # If retrieval came back empty (e.g. embedding API hiccup or empty corpus),
+    # fall back to seed_quotes so the prompt is never evidence-less.
+    if not chunks and persona.seed_quotes:
+        chunks = [
+            knowledge_store.RetrievedChunk(
+                text=q,
+                score=0.0,
+                source=f"{persona.name} (seed quote fallback)",
+            )
+            for q in persona.seed_quotes[:EVIDENCE_PER_TURN]
+        ]
 
-    cache[persona.id] = quotes
-    return quotes
+    # Internal diagnostics for smoke scripts. Public API routes sanitize this
+    # field so evidence is never sent to the frontend.
+    session.setdefault("quotes_by_persona", {})[persona.id] = [c.text for c in chunks]
+    return chunks
+
+
+def _build_evidence_query(persona: Persona, session: Dict) -> str:
+    """Build the semantic query used for turn-specific corpus retrieval."""
+    lines = [
+        f"Debate topic: {session['topic']}",
+        f"Current expert: {persona.name}",
+        f"Expert lens: {persona.bio}",
+    ]
+
+    recent_turns = [
+        t for t in session.get("history", []) if t.get("speaker") and t.get("content")
+    ][-RETRIEVAL_CONTEXT_TURNS:]
+    if recent_turns:
+        lines.append("Recent debate context:")
+        for turn in recent_turns:
+            speaker = turn.get("speaker", "Unknown")
+            content = _compact_text(turn.get("content", ""), max_chars=600)
+            lines.append(f"{speaker}: {content}")
+
+    return "\n".join(lines)
+
+
+def _compact_text(text: str, *, max_chars: int) -> str:
+    """Whitespace-normalize and truncate text for retrieval queries."""
+    compact = " ".join(text.split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 3].rstrip() + "..."

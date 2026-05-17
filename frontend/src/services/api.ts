@@ -45,6 +45,7 @@ export const api = {
   startDiscourse(body: {
     topic: string
     persona_ids: string[]
+    user_name?: string
     max_turns?: number
     socratic_mode?: boolean
   }): Promise<SessionStartResponse> {
@@ -60,6 +61,13 @@ export const api = {
 
   nextTurn(sessionId: string): Promise<Turn> {
     return request(`/discourse/${sessionId}/next`, { method: 'POST' })
+  },
+
+  addUserInput(sessionId: string, content: string): Promise<Turn> {
+    return request(`/discourse/${sessionId}/input`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    })
   },
 
   endDiscourse(sessionId: string): Promise<{ message: string }> {

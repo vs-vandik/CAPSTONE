@@ -11,8 +11,13 @@ export interface Persona {
   rag_tier: 'full' | 'curated'
 }
 
-export type TurnRole = 'plato' | 'expert'
-export type TurnType = 'opening' | 'transition' | 'closing' | 'expert'
+export type TurnRole = 'plato' | 'expert' | 'user'
+export type TurnType =
+  | 'opening'
+  | 'transition'
+  | 'closing'
+  | 'expert'
+  | 'user_input'
 
 export interface Turn {
   role: TurnRole
@@ -28,6 +33,7 @@ export interface SessionStartResponse {
   session_id: string
   topic: string
   persona_ids: string[]
+  user_name: string
   max_turns: number
   status: 'active' | 'done'
 }

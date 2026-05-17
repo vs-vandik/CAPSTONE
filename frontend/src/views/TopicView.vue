@@ -9,10 +9,13 @@ const router = useRouter()
 
 // Local draft. Only commit to the store when the user clicks Continue,
 // so navigating back/forward doesn't churn the store.
+const nameDraft = ref(store.userName)
 const draft = ref(store.topic)
 const submitting = ref(false)
 
-const canContinue = computed(() => draft.value.trim().length > 0)
+const canContinue = computed(
+  () => nameDraft.value.trim().length > 0 && draft.value.trim().length > 0,
+)
 
 // Speech-to-text for the proposition field. We track whatever was in
 // the textarea before recording started so each utterance appends to
@@ -73,6 +76,7 @@ function applySuggestion(text: string) {
 async function submit() {
   if (!canContinue.value || submitting.value) return
   submitting.value = true
+  store.setUserName(nameDraft.value)
   store.setTopic(draft.value)
   const sessionId = await store.start()
   submitting.value = false
@@ -111,6 +115,28 @@ async function submit() {
     </div>
 
     <div class="max-w-3xl">
+      <div class="mb-8">
+        <label
+          for="user-name"
+          class="label mb-2 block"
+        >
+          Plato asks
+        </label>
+        <input
+          id="user-name"
+          v-model="nameDraft"
+          class="input text-base"
+          type="text"
+          maxlength="60"
+          autocomplete="name"
+          placeholder="What shall we call you?"
+          @keydown.enter.exact.prevent="submit"
+        />
+        <p class="text-xs text-ink-faint mt-2">
+          The experts may address you by this name during the discourse.
+        </p>
+      </div>
+
       <label
         for="topic"
         class="label mb-2 block"

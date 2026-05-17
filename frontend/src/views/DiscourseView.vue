@@ -10,6 +10,7 @@ const router = useRouter()
 
 const transcriptEnd = ref<HTMLElement | null>(null)
 const aporiaLoading = ref(false)
+const userInputDraft = ref('')
 
 // Build a quick lookup so TurnBubble can resolve persona by id.
 const personaById = computed(() => {
@@ -41,9 +42,8 @@ onBeforeUnmount(() => {
 })
 
 function onKey(e: KeyboardEvent) {
-  // Spacebar advances the dialogue. Ignore when typing in inputs (none on
-  // this view, but this guard is cheap and future-proof) or when a
-  // modifier is held.
+  // Spacebar advances the dialogue. Ignore when typing in the participant
+  // input bar or when a modifier is held.
   if (e.target instanceof HTMLElement) {
     const tag = e.target.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -66,6 +66,19 @@ const isLoading = computed(() => store.status === 'loading')
 const isDone = computed(() => store.status === 'done')
 const isEmpty = computed(() => store.turns.length === 0)
 const canContinue = computed(() => !isLoading.value && !isDone.value && !isEmpty.value)
+const lastTurn = computed(() => store.turns[store.turns.length - 1] ?? null)
+const expertTurnsSoFar = computed(
+  () => store.turns.filter((t) => t.role === 'expert').length,
+)
+const canOfferUserInput = computed(
+  () =>
+    canContinue.value &&
+    lastTurn.value?.role === 'expert' &&
+    expertTurnsSoFar.value < store.maxTurns,
+)
+const canSubmitUserInput = computed(
+  () => canOfferUserInput.value && userInputDraft.value.trim().length > 0,
+)
 // While the backend is generating the next turn, surface *who* is
 // thinking when we can. Plato's turns are template-based and effectively
 // instant, so the only loading states the user actually sees are expert
@@ -80,12 +93,22 @@ const advanceLabel = computed(() => {
   if (isLoading.value) return 'Thinking…'
   if (isDone.value) return 'Dialogue concluded'
   if (isEmpty.value) return 'Opening…'
+  if (canOfferUserInput.value) return 'Continue listening ▸'
   return 'Continue ▸'
 })
 
 async function advance() {
   if (isLoading.value || isDone.value) return
   await store.nextTurn()
+}
+
+async function submitUserInput() {
+  if (!canSubmitUserInput.value) return
+  const content = userInputDraft.value.trim()
+  await store.addUserInput(content)
+  if (!store.error) {
+    userInputDraft.value = ''
+  }
 }
 
 async function aporia() {
@@ -179,7 +202,13 @@ async function endSession() {
           class="mx-1 px-1.5 py-0.5 font-mono text-[11px] text-ink-muted
                  border border-border rounded-sm bg-surface"
         >Space</kbd>
-        to continue, or click <span class="text-ink-muted">Continue</span> below.
+        to continue.
+        <span v-if="canOfferUserInput">
+          Add your thought below, or keep listening.
+        </span>
+        <span v-else>
+          Or click <span class="text-ink-muted">Continue</span> below.
+        </span>
       </p>
 
       <div ref="transcriptEnd" />
@@ -204,6 +233,37 @@ async function endSession() {
       class="fixed bottom-0 left-0 right-0 border-t border-border bg-bg/95 backdrop-blur z-20"
       style="padding-bottom: env(safe-area-inset-bottom);"
     >
+      <form
+        v-if="canOfferUserInput"
+        class="max-w-page mx-auto px-4 sm:px-6 pt-3 pb-2"
+        @submit.prevent="submitUserInput"
+      >
+        <label
+          for="participant-input"
+          class="label mb-2 block"
+        >
+          Plato offers the floor
+        </label>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <textarea
+            id="participant-input"
+            v-model="userInputDraft"
+            class="input discourse-input text-sm leading-snug"
+            rows="2"
+            maxlength="1200"
+            placeholder="Add a question, objection, or detail for the experts to use."
+            @keydown.enter.exact.prevent="submitUserInput"
+          />
+          <button
+            class="btn-secondary sm:self-stretch"
+            type="submit"
+            :disabled="!canSubmitUserInput"
+          >
+            Add your thought
+          </button>
+        </div>
+      </form>
+
       <!-- Mobile: stacked layout -->
       <div class="sm:hidden max-w-page mx-auto px-4 py-3 flex flex-col gap-2">
         <button
@@ -253,7 +313,7 @@ async function endSession() {
 
     <!-- Bottom spacer so content isn't hidden by the sticky bar.
          Mobile stacked bar is ~140px tall; desktop is ~76px. -->
-    <div class="h-44 sm:h-24" />
+    <div :class="canOfferUserInput ? 'h-72 sm:h-48' : 'h-44 sm:h-24'" />
 
     <AporiaPanel
       :open="!!store.aporia || aporiaLoading"
@@ -274,6 +334,16 @@ async function endSession() {
   font-weight: 600;
   letter-spacing: 0.01em;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.discourse-input {
+  min-height: 3.25rem;
+  max-height: 8rem;
+  resize: vertical;
+}
+@media (min-width: 640px) {
+  .discourse-input {
+    resize: none;
+  }
 }
 /* When the user can actually advance (turn rendered, not loading, not
    done), gently pulse the button so the eye is drawn to it after the

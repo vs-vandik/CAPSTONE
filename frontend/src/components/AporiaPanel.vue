@@ -53,9 +53,9 @@ function pointsOf(list: AporiaPoint[] | undefined): AporiaPoint[] {
   <transition name="aporia">
     <aside
       v-if="open"
-      class="fixed bg-surface shadow-xl z-40 overflow-y-auto
-             inset-x-0 bottom-0 max-h-[85vh] rounded-t-lg border-t border-border
-             sm:inset-y-0 sm:right-0 sm:left-auto sm:bottom-auto sm:max-h-none
+      class="fixed bg-surface shadow-xl z-40 flex flex-col overflow-hidden
+             inset-x-0 bottom-0 max-h-[85dvh] rounded-t-lg border-t border-border
+             sm:inset-y-0 sm:right-0 sm:left-auto sm:h-screen sm:max-h-screen
              sm:w-[480px] sm:rounded-none sm:border-t-0 sm:border-l"
       role="dialog"
       aria-labelledby="aporia-title"
@@ -68,7 +68,7 @@ function pointsOf(list: AporiaPoint[] | undefined): AporiaPoint[] {
       />
 
       <header
-        class="sticky top-0 bg-surface border-b border-border px-6 py-4 flex items-center justify-between"
+        class="flex-shrink-0 bg-surface border-b border-border px-6 py-4 flex items-center justify-between"
       >
         <div>
           <p class="label">Aporia</p>
@@ -85,7 +85,7 @@ function pointsOf(list: AporiaPoint[] | undefined): AporiaPoint[] {
         </button>
       </header>
 
-      <div class="px-6 py-6">
+      <div class="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         <div v-if="loading" class="text-sm text-ink-muted">
           Examining the dialogue.
         </div>

@@ -34,27 +34,31 @@ class Plato:
     # ==================
     
     @staticmethod
-    def opening(topic: str, speakers: List[str]) -> Dict:
+    def opening(topic: str, speakers: List[str], user_name: Optional[str] = None) -> Dict:
         """
         Generate the opening of a Socratic dialogue.
         
         Args:
             topic: The question being debated
             speakers: List of expert names participating
+            user_name: Name chosen by the human participant
             
         Returns:
             Dict with Plato's opening message and metadata
         """
         speaker_names = ", ".join(speakers[:-1]) + f", and {speakers[-1]}"
+        participant = user_name if user_name and user_name != "the user" else "Friend"
         
         return {
             "role": "plato",
             "type": "opening",
-            "content": f""" *The Academy gathers...*
+            "content": f"""*The Academy gathers...*
 
-The question before us is: **{topic}**
+{participant}, you have brought a question before us: **{topic}**
 
 We have before us {speaker_names} — each a thinker of distinction, each with their own way of seeing the world.
+
+You are not merely an observer here; your question gives this inquiry its shape.
 
 Let us examine this matter together, as Socrates would have wished. 
 Each of you, speak your truth. And let us test these truths through questioning.
@@ -112,6 +116,35 @@ What have they overlooked?""",
             "type": "transition",
             "content": socratic_prompts[prompt_index],
             "guidance": f"Respond to {prev}'s argument by identifying its weaknesses or building upon it."
+        }
+
+    @staticmethod
+    def user_transition(context: TurnContext, previous_content: str) -> Dict:
+        """
+        Move from the human participant's intervention back to an expert.
+        
+        Args:
+            context: Current turn context
+            previous_content: What the participant said
+            
+        Returns:
+            Dict with Plato's transition message
+        """
+        prev = context.previous_speaker or "our participant"
+        curr = context.current_speaker
+        
+        prompt = f"""*Plato turns from {prev} to {curr}:*
+
+{prev} has entered the inquiry with a further thought.
+{curr}, take up this intervention and test what follows from it.
+
+Does it strengthen your position, trouble it, or reveal a distinction we have not yet made?"""
+        
+        return {
+            "role": "plato",
+            "type": "transition",
+            "content": prompt,
+            "guidance": f"Respond to {prev}'s intervention while continuing the debate."
         }
     
     # ==================

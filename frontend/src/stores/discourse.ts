@@ -15,10 +15,12 @@ interface State {
 
   // Setup flow (persists across the Personas -> Topic -> Discourse pages)
   selectedPersonaIds: string[]
+  userName: string
   topic: string
 
   // Active session
   sessionId: string | null
+  maxTurns: number
   turns: Turn[]
   status: DiscourseStatus
   error: string | null
@@ -36,8 +38,10 @@ export const useDiscourseStore = defineStore('discourse', {
     personasLoaded: false,
     personasLoading: false,
     selectedPersonaIds: [],
+    userName: '',
     topic: '',
     sessionId: null,
+    maxTurns: 6,
     turns: [],
     status: 'idle',
     error: null,
@@ -56,7 +60,9 @@ export const useDiscourseStore = defineStore('discourse', {
     },
     isReadyToStart(state): boolean {
       return (
-        state.selectedPersonaIds.length === 2 && state.topic.trim().length > 0
+        state.selectedPersonaIds.length === 2 &&
+        state.userName.trim().length > 0 &&
+        state.topic.trim().length > 0
       )
     },
     canAdvance(state): boolean {
@@ -178,6 +184,10 @@ export const useDiscourseStore = defineStore('discourse', {
       this.topic = topic
     },
 
+    setUserName(userName: string) {
+      this.userName = userName
+    },
+
     async start(): Promise<string | null> {
       if (!this.isReadyToStart) return null
       this.status = 'loading'
@@ -188,14 +198,32 @@ export const useDiscourseStore = defineStore('discourse', {
         const res = await api.startDiscourse({
           topic: this.topic.trim(),
           persona_ids: [...this.selectedPersonaIds],
+          user_name: this.userName.trim(),
         })
         this.sessionId = res.session_id
+        this.userName = res.user_name
+        this.maxTurns = res.max_turns
         this.status = 'idle'
         return res.session_id
       } catch (e) {
         this.error = (e as Error).message
         this.status = 'error'
         return null
+      }
+    },
+
+    async addUserInput(content: string) {
+      if (!this.sessionId) return
+      if (this.status === 'done' || this.status === 'loading') return
+      this.status = 'loading'
+      this.error = null
+      try {
+        const turn = await api.addUserInput(this.sessionId, content)
+        this.turns.push(turn)
+        this.status = turn.done ? 'done' : 'active'
+      } catch (e) {
+        this.error = (e as Error).message
+        this.status = 'error'
       }
     },
 
@@ -237,6 +265,7 @@ export const useDiscourseStore = defineStore('discourse', {
         }
       }
       this.sessionId = null
+      this.maxTurns = 6
       this.turns = []
       this.status = 'idle'
       this.error = null
@@ -245,6 +274,7 @@ export const useDiscourseStore = defineStore('discourse', {
 
     resetAll() {
       this.selectedPersonaIds = []
+      this.userName = ''
       this.topic = ''
       this.end()
     },
