@@ -41,9 +41,11 @@ DEFAULT_MAX_TURNS = 6
 
 # Keep expert turns compact while leaving enough room for persona voice, humor,
 # and paragraph breaks. Plato and Aporia keep using the global LLM setting.
-EXPERT_TURN_MAX_TOKENS = 340
+EXPERT_TURN_MAX_TOKENS = 380
 EVIDENCE_PER_TURN = 5
 RETRIEVAL_CONTEXT_TURNS = 3
+MESSAGE_CONTEXT_TURNS = 8
+EVIDENCE_MAX_CHARS = 1100
 
 
 # ==================
@@ -185,6 +187,16 @@ def _build_system_prompt(
         f"Bio: {persona.bio}",
         "",
         f"Voice and style: {persona.voice}",
+        "",
+        (
+            "Quality priority: the point of this product is the expert's "
+            "distinctive mind. Never flatten into generic AI commentary. If "
+            "there is tension between speed, brevity, and persona, preserve "
+            "persona. Keep the quirks, favorite obsessions, private "
+            "vocabulary, humor, metaphors, and argumentative habits that make "
+            "this expert recognizable. A slightly longer, more alive answer "
+            "is better than a short clean answer."
+        ),
     ]
 
     persona_guidance = _persona_turn_guidance(persona)
@@ -253,7 +265,7 @@ def _build_system_prompt(
             "like [E1] in the answer."
         )
         for i, chunk in enumerate(evidence, start=1):
-            parts.append(f"[E{i}] {chunk.text}")
+            parts.append(f"[E{i}] {_compact_text(chunk.text, max_chars=EVIDENCE_MAX_CHARS)}")
 
     news_block = news.format_for_prompt(news_snippets)
     if news_block:
@@ -292,20 +304,23 @@ def _build_system_prompt(
         "habit of thought, not as quoted evidence. If only one item is "
         "relevant, use it deeply rather than name-dropping several weak ones.",
         "",
-        "Speak as yourself in 2-3 compact paragraphs, roughly 120-180 words "
+        "Speak as yourself in 2-3 compact paragraphs, roughly 130-220 words "
         "total. Let the previous expert's point provoke the answer when "
         "there is one; do not merely add your own adjacent opinion. Attack "
-        "one important assumption or failure mode, but do not force the "
+        "one important assumption or failure mode, and make the attack feel "
+        "like it could only come from this persona. Do not force the "
         "reference into the first sentence. "
         "Do not use the polished explanatory scaffold 'That is why..., "
         "not because..., but because...' or close variants such as 'This is "
         "not because X, but because Y.' Make contrasts more direct and "
         "less formulaic. "
         "Keep the persona's distinctive tone, vocabulary, analogies, and "
-        "habitual obsessions intact. Compress by choosing one main argument "
-        "and one concrete clash; do not stack several arguments or extend "
-        "the explanation. Do not break character. Do not announce yourself "
-        "('As Warren Buffett, I...'); just speak.",
+        "habitual obsessions intact. Include one vivid persona-specific "
+        "aside, image, jab, or analogy when it fits. Compress by choosing "
+        "one main argument and one concrete clash; do not stack several "
+        "arguments or drift into generic explanation. Do not break "
+        "character. Do not announce yourself ('As Warren Buffett, I...'); "
+        "just speak.",
     ])
 
     return "\n".join(parts)
@@ -426,7 +441,7 @@ def _history_as_messages(history: List[Dict], *, speaker_name: str) -> List[Dict
     model has clear attribution without us inventing more roles.
     """
     out: List[Dict] = []
-    for turn in history:
+    for turn in history[-MESSAGE_CONTEXT_TURNS:]:
         content = turn.get("content", "")
         speaker = turn.get("speaker", "Unknown")
         if speaker == speaker_name:

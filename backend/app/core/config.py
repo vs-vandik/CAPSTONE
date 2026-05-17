@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # OpenAI-compatible provider) by changing only .env values.
     MODEL_ACCESS_KEY: Optional[str] = None
     LLM_BASE_URL: str = "https://inference.do-ai.run/v1/"
-    LLM_MODEL: str = "kimi-k2.6"
+    LLM_MODEL: str = "deepseek-v4-pro"
     EMBEDDING_MODEL: str = "qwen3-embedding-0.6b"
     EMBEDDING_DIM: int = 1024  # qwen3-embedding-0.6b native dim
     TEMPERATURE: float = 0.7
