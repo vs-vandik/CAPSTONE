@@ -371,6 +371,15 @@ def _persona_turn_guidance(persona: Persona) -> str:
             "annual-letter paragraph; in short mode, use four clean boardroom "
             "sentences at most, and keep each sentence short."
         ),
+        "bieger": (
+            "Bieger-specific short answer rule: preserve the systems-management "
+            "lens. Frame the issue as a destination, service, aviation, "
+            "university, or regional-governance system with interdependent "
+            "actors. Name the coordination problem, the incentives, and the "
+            "public or regional value at stake. Prefer a clear HSG-style "
+            "framework over rhetoric, and challenge simple market or marketing "
+            "stories that ignore governance capacity."
+        ),
         "musk": (
             "Musk-specific short answer rule: write like a thread or a burst "
             "of posts, not an essay. Use short, spoken sentences and fragments "

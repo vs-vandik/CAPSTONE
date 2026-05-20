@@ -25,7 +25,11 @@ TOPICS = {
     "musk": "Will artificial intelligence make most jobs obsolete?",
     "marx": "Does capital accumulation benefit or impoverish the working class?",
     "caesar": "How should a leader handle the cost of a long military campaign?",
-    "kardashian": "How does a brand keep consumer attention at scale?",
+    "thiel": "Is technological progress meaningfully slowing down?",
+    "bieger": (
+        "How should alpine tourism adapt to digital analytics, mobility "
+        "shifts, and sustainability pressure?"
+    ),
 }
 
 
@@ -66,7 +70,7 @@ def main() -> int:
 
         # Run a real retrieval and show the top result so we can see
         # what the persona will actually be grounded with.
-        topic = TOPICS[pid]
+        topic = TOPICS.get(pid, persona.bio)
         chunks = retriever.query(topic, k=2)
         print(f"   topic: {topic}")
         if not chunks:

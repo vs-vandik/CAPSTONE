@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Capstone demo: "AI Investment Discourse" — six AI personas (Buffett, Fink,
-Musk, Thiel, Marx, Caesar) debate finance topics under Plato's
+Capstone demo: "AI Investment Discourse" — seven AI personas (Buffett, Fink,
+Bieger, Musk, Thiel, Marx, Caesar) debate finance topics under Plato's
 moderation, with Aporia critiquing the result. Backend is working
 end-to-end via DigitalOcean Serverless Inference; frontend is still an
 empty skeleton.
@@ -28,7 +28,7 @@ empty skeleton.
     the LLM is unavailable or returns unparseable JSON.
   - `app/agents/experts/scraper.py` — old placeholder, **not used at
     runtime**. Real ingestion lives in `scripts/ingest/`.
-  - `app/core/personas.py` — six persona definitions (id, voice, refusals,
+  - `app/core/personas.py` — seven persona definitions (id, voice, refusals,
     seed_quotes, `rag_tier ∈ {full, curated}`).
   - `app/core/llm.py` — single `generate(system, messages)` around the
     OpenAI SDK pointed at `LLM_BASE_URL` (DO Inference by default).
@@ -44,6 +44,12 @@ empty skeleton.
     `data/fink/chunks.jsonl`. Each source is independent; partial
     failures don't abort the run. Uses cross-source dedupe to drop the
     recurring "Mega forces" sidebar.
+  - `ingest/bieger.py` — assembles Thomas Bieger's corpus from the German
+    Wikipedia biography plus ResearchGate publication metadata / abstract
+    summaries. ResearchGate blocks local scripted HTTP with 403 in this
+    environment and many pages expose only "Request full-text PDF"; the
+    script records that access note and falls back to curated metadata
+    summaries from the public pages.
   - `ingest/musk.py` — assembles a Musk corpus from the Kaggle dataset
     "Elon Musk Tweets 2010 to 2025 (March)" by dadalyndell (CSV must
     be downloaded manually to `backend/data/musk/raw/` since Kaggle
@@ -87,6 +93,8 @@ empty skeleton.
   - `smoke_fink.py` — drives a short Buffett↔Fink discourse end-to-end
     and prints the retrieved quotes per persona. Useful as a regression
     test after touching the discourse loop or knowledge store.
+  - `smoke_bieger.py` — same idea for a Fink↔Bieger debate on alpine
+    tourism, digital analytics, mobility shifts, and sustainability.
   - `smoke_musk.py` — same idea for a Fink↔Musk debate on AI and the
     labor market.
   - `smoke_marx.py` — same idea for a Buffett↔Marx debate on whether

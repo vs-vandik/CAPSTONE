@@ -6,16 +6,16 @@ Two strategies behind one interface (`get_retriever(persona) -> Retriever`):
   `data/<expert>/chunks.jsonl` from disk, embeds the query via the
   configured embedding provider (DigitalOcean Inference by default),
   returns top-k chunks by cosine similarity. Used for personas with the
-  `full` RAG tier (Buffett, Fink, Musk).
+  `full` RAG tier when an index has been built.
 
 - `SeedQuoteRetriever`: in-memory cosine over the persona's `seed_quotes`,
   embedded once and cached on the retriever instance. Used for personas
-  with the `curated` RAG tier (Marx, Caesar, Kardashian).
+  with the `curated` RAG tier, and as fallback for full-tier personas
+  whose on-disk index has not been built yet.
 
-If a `full`-tier persona has no on-disk index yet (e.g. Fink and Musk
-before their scrapers are written), `get_retriever` falls back to a
-`SeedQuoteRetriever` over the persona's seed_quotes so the demo still
-runs end-to-end.
+If a `full`-tier persona has no on-disk index yet, `get_retriever` falls
+back to a `SeedQuoteRetriever` over the persona's seed_quotes so the demo
+still runs end-to-end.
 
 We intentionally do NOT use Chroma: at the demo's scale (a few thousand
 chunks per expert) NumPy cosine is faster, has no C build deps, and
