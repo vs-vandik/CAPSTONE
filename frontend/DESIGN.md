@@ -24,7 +24,7 @@ User configures and starts a discourse.
 
 Inputs:
 - Topic — text input, required
-- Personas — multi-select from `GET /api/v1/personas`, min 2, max 6
+- Personas — select two experts from `GET /api/v1/personas`
 - Max turns — number, default 6
 - "Start" button → `POST /api/v1/discourse/start`
 

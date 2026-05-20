@@ -142,8 +142,8 @@ export const useDiscourseStore = defineStore('discourse', {
             const { personas } = await api.listPersonas()
             // Defensive: treat an empty list as a failure too, so the
             // user never sees a silent "no cards" screen. The backend
-            // ships six personas; zero means the response was malformed
-            // or the route is misbehind a proxy.
+            // owns the persona catalog; zero means the response was
+            // malformed or the route is misbehind a proxy.
             if (!Array.isArray(personas) || personas.length === 0) {
               throw new Error('Empty personas response')
             }
